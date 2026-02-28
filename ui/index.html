@@ -1,0 +1,222 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background:#0b0f19; color:#e5e7eb; }
+    .wrap { padding: 22px; }
+    .card { background:#111827; border:1px solid #1f2937; border-radius:16px; padding:18px; }
+    .row { display:flex; gap:14px; align-items:center; }
+    .logo { width:44px; height:44px; border-radius:12px; background:#0b0f19; display:flex; align-items:center; justify-content:center; overflow:hidden; border:1px solid #1f2937; }
+    .logo img { width:100%; height:100%; object-fit:contain; }
+    .btn { border-radius:12px; padding:12px 14px; font-weight:700; cursor:pointer; border:1px solid #374151; background:#ffffff; color:#111827; width: 100%; }
+    .btn.secondary { background:transparent; color:#e5e7eb; }
+    .muted { color:#9ca3af; font-size: 13px; line-height: 1.4; }
+    code { color:#e5e7eb; }
+    .row2 { display:flex; gap:10px; }
+    .row2 .btn { width:auto; flex:1; }
+    label { display:flex; align-items:center; gap:10px; cursor:pointer; }
+    input[type="checkbox"] { width: 18px; height: 18px; }
+
+    /* Modal */
+    .modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.55); padding: 18px; }
+    .modal.show { display: flex; }
+    .modalCard { width: 100%; max-width: 420px; background:#0f172a; border:1px solid #1f2937; border-radius:16px; padding: 16px; }
+    .field { display:flex; flex-direction:column; gap:6px; margin-top: 10px; }
+    .field input { border-radius: 12px; border:1px solid #374151; padding: 10px 12px; background: #0b0f19; color: #e5e7eb; outline: none; }
+    .err { color: #fca5a5; font-size: 13px; margin-top: 10px; display:none; }
+    .ok { color: #86efac; font-size: 13px; margin-top: 10px; display:none; }
+    .small { font-size:12px; color:#9ca3af; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="row">
+      <div class="logo"><img src="data:image/png;base64,{{LOGO_BASE64}}" alt="logo"></div>
+      <div>
+        <div style="font-size:18px; font-weight:800;">SpyCam Desktop Agent</div>
+        <div class="muted">
+          Local agent: <code id="endpoint">127.0.0.1:8765</code>
+          <span id="health" style="margin-left:10px;"></span>
+        </div>
+        <div class="muted" style="margin-top:6px;">
+          Scanner server: <code id="server">spycamera.test</code>
+        </div>
+      </div>
+    </div>
+
+    <div style="height:14px;"></div>
+
+    <div class="card">
+      <div class="muted">
+        This app runs in the background (tray) and powers the web scanner.
+        Network scan results are returned to the website; LAN network details are now included in the scan payload.
+      </div>
+
+      <div style="height:14px;"></div>
+
+      <button class="btn" onclick="openScanner()">Open Scanner Website</button>
+
+      <div style="height:10px;"></div>
+      <button class="btn secondary" onclick="openSettings()">Change server & port</button>
+
+      <div style="height:12px;"></div>
+
+      <label class="muted">
+        <input id="startup" type="checkbox" onchange="onStartupToggle()">
+        Run on startup
+      </label>
+
+      <div style="height:14px;"></div>
+
+      <div class="row2">
+        <button class="btn secondary" onclick="hideUi()">Hide</button>
+        <button class="btn secondary" onclick="quitApp()">Quit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="settingsModal" class="modal" onclick="modalBackdrop(event)">
+    <div class="modalCard">
+      <div style="font-size:16px; font-weight:800;">Scanner connection</div>
+      <div class="muted" style="margin-top:6px;">
+        Change the server address and port used for the scanner website & CORS origin.
+      </div>
+
+      <div class="field">
+        <div class="muted">Admin password</div>
+        <input id="pw" type="password" placeholder="Enter password to unlock" />
+      </div>
+
+      <div class="field">
+        <div class="muted">Server address (IP or domain)</div>
+        <input id="host" type="text" placeholder="spycamera.test" />
+      </div>
+
+      <div class="field">
+        <div class="muted">Port</div>
+        <input id="port" type="number" min="1" max="65535" placeholder="80" />
+      </div>
+
+      <div class="field" style="flex-direction:row; align-items:center; gap:10px;">
+        <input id="https" type="checkbox" />
+        <div class="muted">Use HTTPS</div>
+      </div>
+
+      <div id="err" class="err"></div>
+      <div id="ok" class="ok"></div>
+      <div id="cfgPath" class="small"></div>
+
+      <div style="height:14px;"></div>
+
+      <div class="row2">
+        <button class="btn secondary" onclick="closeSettings()">Cancel</button>
+        <button class="btn" onclick="saveSettings()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function showErr(msg) {
+      const el = document.getElementById('err');
+      el.textContent = msg || '';
+      el.style.display = msg ? 'block' : 'none';
+      document.getElementById('ok').style.display = 'none';
+    }
+    function showOk(msg) {
+      const el = document.getElementById('ok');
+      el.textContent = msg || '';
+      el.style.display = msg ? 'block' : 'none';
+      document.getElementById('err').style.display = 'none';
+    }
+
+    async function loadStartup() {
+      try {
+        const v = await startupEnabled();
+        document.getElementById('startup').checked = !!v;
+      } catch (e) {}
+    }
+
+    async function onStartupToggle() {
+      const checked = document.getElementById('startup').checked;
+      try { await setStartupEnabled(checked); } catch (e) {}
+    }
+
+    async function loadEndpointAndHealth() {
+      try {
+        if (typeof agentEndpoint === 'function') {
+          const ep = await agentEndpoint();
+          if (ep) document.getElementById('endpoint').textContent = ep.replace('http://', '');
+        }
+      } catch (e) {}
+
+      try {
+        if (typeof agentHealth === 'function') {
+          const h = await agentHealth();
+          document.getElementById('health').textContent = h && h.ok ? '• running' : '• not running';
+        }
+      } catch (e) {}
+    }
+
+    async function loadServerInfo() {
+      try {
+        if (typeof getConnectionConfig === 'function') {
+          const cfg = await getConnectionConfig();
+          if (cfg && cfg.origin) {
+            document.getElementById('server').textContent = cfg.origin.replace(/^https?:\/\//, '');
+          }
+        }
+      } catch (e) {}
+    }
+
+    function modalBackdrop(ev) {
+      if (ev.target && ev.target.id === 'settingsModal') closeSettings();
+    }
+
+    async function openSettings() {
+      showErr('');
+      showOk('');
+      document.getElementById('pw').value = '';
+      document.getElementById('settingsModal').classList.add('show');
+
+      try {
+        const cfg = await getConnectionConfig();
+        document.getElementById('host').value = (cfg && cfg.host) ? cfg.host : '';
+        document.getElementById('port').value = (cfg && cfg.port) ? cfg.port : '';
+        document.getElementById('https').checked = !!(cfg && cfg.https);
+        document.getElementById('cfgPath').textContent = cfg && cfg.config_path ? ('Saved at: ' + cfg.config_path) : '';
+      } catch (e) {}
+    }
+
+    function closeSettings() {
+      document.getElementById('settingsModal').classList.remove('show');
+    }
+
+    async function saveSettings() {
+      showErr('');
+      showOk('');
+
+      const pw = document.getElementById('pw').value || '';
+      const host = document.getElementById('host').value || '';
+      const port = parseInt(document.getElementById('port').value || '0', 10);
+      const https = !!document.getElementById('https').checked;
+
+      try {
+        const res = await saveConnectionConfig(pw, host, port, https);
+        showOk('Saved. New server: ' + (res.origin || ''));
+        await loadServerInfo();
+        setTimeout(closeSettings, 700);
+      } catch (e) {
+        showErr((e && e.message) ? e.message : String(e || 'Failed'));
+      }
+    }
+
+    loadStartup();
+    loadEndpointAndHealth();
+    loadServerInfo();
+    setInterval(loadEndpointAndHealth, 5000);
+    setInterval(loadServerInfo, 5000);
+  </script>
+</body>
+</html>

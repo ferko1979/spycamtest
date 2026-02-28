@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+go mod tidy
+go build -o spycam-desktop .
+
+chmod +x ./spycam-desktop
+
+mkdir -p dist/macos
+cp spycam-desktop dist/macos/
+cp README.txt dist/macos/
+
+cd dist/macos
+zip -r ../../spycam-desktop-macos.zip .
+cd ../..
+
+echo "Built spycam-desktop-macos.zip"

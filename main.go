@@ -30,11 +30,8 @@ import (
 // - assets/icon.png
 // - ui/index.html
 //
-//go:embed assets/icon.ico assets/icon.png ui/index.html
+//go:embed assets/icon.ico assets/icon.png ui/index.html ui/dashboard.html
 var assetsFS embed.FS
-
-// Hard-coded admin password (as requested)
-const adminPassword = "M3t6lqu0"
 
 type Device struct {
 	IP       string `json:"ip"`
@@ -55,6 +52,64 @@ type RemoteConfig struct {
 	Port        int    `json:"port"`
 	HTTPS       bool   `json:"https"`
 	ScannerPath string `json:"scanner_path"`
+
+	// Token is the bearer token required by the local agent API. It is
+	// generated on first run (see ensureToken) and replaces the former
+	// hard-coded admin password.
+	Token string `json:"token,omitempty"`
+
+	// ActivityConsent records that the user has consented to the disclosed
+	// activity tracker (app/window-title/time). Default false: nothing is
+	// tracked until the user turns it on in the agent window.
+	ActivityConsent bool `json:"activity_consent"`
+
+	// ActiveScanConsent enables the opt-in active TCP sweep of local
+	// subnets. Default false: discovery is passive unless the user opts in.
+	ActiveScanConsent bool `json:"active_scan_consent"`
+
+	// SampleIntervalSec is how often the activity tracker samples the
+	// foreground window (seconds). Default 5 if unset/invalid.
+	SampleIntervalSec int `json:"sample_interval_sec,omitempty"`
+
+	// IdleThresholdSec is how long with no input before samples count as
+	// idle (seconds). Default 180 if unset/invalid.
+	IdleThresholdSec int `json:"idle_threshold_sec,omitempty"`
+
+	// WebhookURL receives new-device / new-camera alert events as JSON.
+	// Empty disables webhook delivery.
+	WebhookURL string `json:"webhook_url,omitempty"`
+
+	// AlertNewDevice / AlertNewCamera gate which alert kinds are sent.
+	AlertNewDevice bool `json:"alert_new_device,omitempty"`
+	AlertNewCamera bool `json:"alert_new_camera,omitempty"`
+
+	// SigningSeed is the base64 Ed25519 seed used to sign work reports.
+	// Generated on first run (see ensureSigningSeed).
+	SigningSeed string `json:"signing_seed,omitempty"`
+
+	// Licensing: the central server, the license codes entered by the user,
+	// the pinned server public key (base64), and a stable per-install device
+	// id. Features/services are unlocked according to the verified codes.
+	LicenseServerURL string   `json:"license_server_url,omitempty"`
+	LicenseCodes     []string `json:"license_codes,omitempty"`
+	LicensePublicKey string   `json:"license_public_key,omitempty"`
+	DeviceID         string   `json:"device_id,omitempty"`
+}
+
+// SampleInterval returns the configured sampling interval, with a default.
+func (c RemoteConfig) SampleInterval() time.Duration {
+	if c.SampleIntervalSec <= 0 {
+		return 5 * time.Second
+	}
+	return time.Duration(c.SampleIntervalSec) * time.Second
+}
+
+// IdleThreshold returns the configured idle threshold, with a default.
+func (c RemoteConfig) IdleThreshold() time.Duration {
+	if c.IdleThresholdSec <= 0 {
+		return 3 * time.Minute
+	}
+	return time.Duration(c.IdleThresholdSec) * time.Second
 }
 
 func (c RemoteConfig) Origin() string {
@@ -138,6 +193,9 @@ func main() {
 	// Load persisted remote config (or derive defaults from flags)
 	cfg := loadRemoteConfigOrDefault(defaultRemoteFromFlags(allowOriginFlag, siteURLFlag))
 	applyRemoteConfig(cfg)
+	ensureToken()
+	ensureSigningSeed()
+	initLicensing()
 
 	systray.Run(onReady, onExit)
 }
@@ -163,10 +221,11 @@ func onReady() {
 	systray.SetTitle("SpyCam Agent")
 	systray.SetTooltip("SpyCam Agent running locally for network scan")
 
-	// Start local API
+	// Start local API and the (consent-gated) activity tracker.
 	if err := startAgent(); err != nil {
 		logf("Failed to start agent: %v", err)
 	}
+	initIntegrations()
 
 	// Menu items
 	mOpenUI := systray.AddMenuItem("Open Agent Window", "Open the SpyCam Agent control window")
@@ -177,6 +236,11 @@ func onReady() {
 
 	systray.AddSeparator()
 
+	// Visible, on-device control for activity tracking. Its checked state
+	// mirrors consent, and the tray title also shows ON/OFF, so the person
+	// on this machine can always see and stop tracking.
+	mTracking := systray.AddMenuItemCheckbox("Activity tracking (app/title/time)", "Disclosed work-activity tracking. Visible while running; you can turn it off here.", getRemoteConfig().ActivityConsent)
+
 	startupMenu = systray.AddMenuItemCheckbox("Run on startup", "Start SpyCam Agent when you log in", false)
 	enabled, _ := startupIsEnabled()
 	if enabled {
@@ -184,6 +248,9 @@ func onReady() {
 	} else {
 		startupMenu.Uncheck()
 	}
+
+	// Reflect current tracking state in the tray title/tooltip.
+	updateTrayIndicator()
 
 	mQuit := systray.AddMenuItem("Quit", "Stop agent and exit")
 
@@ -195,6 +262,16 @@ func onReady() {
 
 			case <-mOpen.ClickedCh:
 				_ = openURL(getSiteURL())
+
+			case <-mTracking.ClickedCh:
+				// Toggle disclosed activity tracking from the tray.
+				if mTracking.Checked() {
+					setTrackingConsent(false)
+					mTracking.Uncheck()
+				} else {
+					setTrackingConsent(true)
+					mTracking.Check()
+				}
 
 			case <-startupMenu.ClickedCh:
 				if startupMenu.Checked() {
@@ -214,6 +291,7 @@ func onReady() {
 }
 
 func onExit() {
+	stopIntegrations()
 	_ = stopAgent()
 }
 
@@ -255,7 +333,7 @@ func showUiWindow() {
 	defer w.Destroy()
 
 	w.SetTitle("SpyCam Agent")
-	w.SetSize(460, 520, webview.HintNone)
+	w.SetSize(500, 720, webview.HintNone)
 
 	// --- JS bindings used by ui/index.html ---
 	_ = w.Bind("openScanner", func() {
@@ -306,21 +384,33 @@ func showUiWindow() {
 	_ = w.Bind("getConnectionConfig", func() map[string]any {
 		cfg := getRemoteConfig()
 		return map[string]any{
-			"host":         cfg.Host,
-			"port":         cfg.Port,
-			"https":        cfg.HTTPS,
-			"scanner_path": cfg.ScannerPath,
-			"origin":       cfg.Origin(),
-			"scanner_url":  cfg.ScannerURL(),
-			"config_path":  mustConfigPath(),
+			"host":                cfg.Host,
+			"port":                cfg.Port,
+			"https":               cfg.HTTPS,
+			"scanner_path":        cfg.ScannerPath,
+			"origin":              cfg.Origin(),
+			"scanner_url":         cfg.ScannerURL(),
+			"config_path":         mustConfigPath(),
+			"sample_interval_sec": int(cfg.SampleInterval() / time.Second),
+			"idle_threshold_sec":  int(cfg.IdleThreshold() / time.Second),
+			"dashboard_url":       fmt.Sprintf("http://%s:%d/dashboard", host, port),
+			"webhook_url":         cfg.WebhookURL,
+			"alert_new_device":    cfg.AlertNewDevice,
+			"alert_new_camera":    cfg.AlertNewCamera,
 		}
 	})
 
-	_ = w.Bind("saveConnectionConfig", func(password, newHost string, newPort int, https bool) (map[string]any, error) {
-		if password != adminPassword {
-			return nil, errors.New("invalid password")
+	_ = w.Bind("saveAlertSettings", func(webhookURL string, newDevice, newCamera bool) map[string]any {
+		saveAlertSettings(webhookURL, newDevice, newCamera)
+		cfg := getRemoteConfig()
+		return map[string]any{
+			"webhook_url":      cfg.WebhookURL,
+			"alert_new_device": cfg.AlertNewDevice,
+			"alert_new_camera": cfg.AlertNewCamera,
 		}
+	})
 
+	_ = w.Bind("saveConnectionConfig", func(newHost string, newPort int, https bool) (map[string]any, error) {
 		newHost = strings.TrimSpace(newHost)
 		if newHost == "" {
 			return nil, errors.New("host/address is required")
@@ -361,6 +451,106 @@ func showUiWindow() {
 			"scanner_url": cfg.ScannerURL(),
 		}, nil
 	})
+
+	// Agent API token, so the operator can configure the scanner site.
+	_ = w.Bind("getAgentToken", func() string {
+		return getToken()
+	})
+
+	// Current activity-tracking state for the window UI.
+	_ = w.Bind("getActivityState", func() map[string]any {
+		var count int
+		if tracker != nil {
+			us, _ := tracker.Snapshot()
+			count = len(us)
+		}
+		return map[string]any{
+			"consent":             getRemoteConfig().ActivityConsent,
+			"active_scan_consent": getRemoteConfig().ActiveScanConsent,
+			"entries":             count,
+		}
+	})
+
+	// Consent toggle for activity tracking. This is the on-device, informed
+	// consent action; it flips the visible tray indicator too.
+	_ = w.Bind("setActivityConsent", func(enable bool) map[string]any {
+		setTrackingConsent(enable)
+		return map[string]any{"consent": getRemoteConfig().ActivityConsent}
+	})
+
+	// Opt-in toggle for the active (packet-sending) network sweep.
+	_ = w.Bind("setActiveScanConsent", func(enable bool) map[string]any {
+		cfg := getRemoteConfig()
+		cfg.ActiveScanConsent = enable
+		_ = saveRemoteConfig(cfg)
+		applyRemoteConfig(cfg)
+		return map[string]any{"active_scan_consent": getRemoteConfig().ActiveScanConsent}
+	})
+
+	// Window-title capability + OS permission remediation.
+	_ = w.Bind("getPermissionStatus", func() map[string]any {
+		ok, detail := permissionStatus()
+		return map[string]any{"ok": ok, "detail": detail}
+	})
+
+	_ = w.Bind("openPermissionSettings", func() {
+		_ = openActivityPermission()
+	})
+
+	// Editable sampling settings (interval + idle threshold).
+	_ = w.Bind("saveActivitySettings", func(intervalSec, idleSec int) (map[string]any, error) {
+		if err := saveActivitySettings(intervalSec, idleSec); err != nil {
+			return nil, err
+		}
+		cfg := getRemoteConfig()
+		return map[string]any{
+			"sample_interval_sec": cfg.SampleIntervalSec,
+			"idle_threshold_sec":  cfg.IdleThresholdSec,
+		}, nil
+	})
+
+	// Open the bundled local scanner dashboard in the browser.
+	_ = w.Bind("openDashboard", func() {
+		_ = openURL(fmt.Sprintf("http://%s:%d/dashboard", host, port))
+	})
+
+	// Licensing: read current config + entitlement, and save new settings.
+	_ = w.Bind("getLicenseConfig", func() map[string]any {
+		cfg := getRemoteConfig()
+		info := licenseInfo()
+		info["server_url"] = cfg.LicenseServerURL
+		info["codes"] = cfg.LicenseCodes
+		info["pinned_key_value"] = cfg.LicensePublicKey
+		return info
+	})
+
+	_ = w.Bind("saveLicenseConfig", func(serverURL, codesText, pinnedKey string) map[string]any {
+		var codes []string
+		for _, part := range strings.FieldsFunc(codesText, func(r rune) bool {
+			return r == '\n' || r == ',' || r == ';' || r == ' ' || r == '\t' || r == '\r'
+		}) {
+			codes = append(codes, part)
+		}
+		setLicenseConfig(serverURL, codes, pinnedKey)
+		return licenseInfo()
+	})
+
+	// Live snapshot of the user's own tracked activity, so the monitored
+	// person can see exactly what is recorded about them.
+	_ = w.Bind("getMyActivity", func() []map[string]any {
+		out := []map[string]any{}
+		if tracker != nil {
+			us, _ := tracker.Snapshot()
+			for _, u := range us {
+				out = append(out, map[string]any{
+					"app":     u.App,
+					"title":   u.Title,
+					"seconds": u.Seconds,
+				})
+			}
+		}
+		return out
+	})
 	// --- end bindings ---
 
 	w.SetHtml(html)
@@ -372,59 +562,10 @@ func startAgent() error {
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		cors(w, getAllowOrigin())
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"ok":       true,
-			"os":       runtime.GOOS,
-			"time":     time.Now().Format(time.RFC3339),
-			"origin":   getAllowOrigin(),
-			"site_url": getSiteURL(),
-		})
-	})
-
-	// NEW: network details only
-	mux.HandleFunc("/networks", func(w http.ResponseWriter, r *http.Request) {
-		cors(w, getAllowOrigin())
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		nets := collectLanNetworks()
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"networks": nets,
-			"os":       runtime.GOOS,
-			"at":       time.Now().Format(time.RFC3339),
-		})
-	})
-
-	// Updated: includes both devices + networks
-	mux.HandleFunc("/scan", func(w http.ResponseWriter, r *http.Request) {
-		cors(w, getAllowOrigin())
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		devs, err := scanNeighbors()
-		if err != nil {
-			http.Error(w, err.Error(), 500)
-			return
-		}
-		nets := collectLanNetworks()
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"devices":   devs,
-			"networks":  nets,
-			"os":        runtime.GOOS,
-			"at":        time.Now().Format(time.RFC3339),
-			"site_url":  getSiteURL(),
-			"origin":    getAllowOrigin(),
-			"agent_url": fmt.Sprintf("http://%s:%d", host, port),
-		})
-	})
+	// All agent endpoints (health, networks, enriched scan, cameras,
+	// activity, report, export) are registered here. Everything but /health
+	// is behind bearer-token auth. See agent_integrations.go.
+	registerAgentRoutes(mux)
 
 	var err error
 	listener, err = net.Listen("tcp", addr)
@@ -457,9 +598,10 @@ func stopAgent() error {
 
 func cors(w http.ResponseWriter, allowOrigin string) {
 	w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
-	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	// Authorization / X-Agent-Token are needed so the scanner site can send
+	// the agent's bearer token on cross-origin requests.
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Agent-Token")
 }
 
 func openURL(url string) error {

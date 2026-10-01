@@ -1,222 +1,350 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background:#0b0f19; color:#e5e7eb; }
-    .wrap { padding: 22px; }
-    .card { background:#111827; border:1px solid #1f2937; border-radius:16px; padding:18px; }
-    .row { display:flex; gap:14px; align-items:center; }
-    .logo { width:44px; height:44px; border-radius:12px; background:#0b0f19; display:flex; align-items:center; justify-content:center; overflow:hidden; border:1px solid #1f2937; }
-    .logo img { width:100%; height:100%; object-fit:contain; }
-    .btn { border-radius:12px; padding:12px 14px; font-weight:700; cursor:pointer; border:1px solid #374151; background:#ffffff; color:#111827; width: 100%; }
-    .btn.secondary { background:transparent; color:#e5e7eb; }
-    .muted { color:#9ca3af; font-size: 13px; line-height: 1.4; }
-    code { color:#e5e7eb; }
-    .row2 { display:flex; gap:10px; }
-    .row2 .btn { width:auto; flex:1; }
-    label { display:flex; align-items:center; gap:10px; cursor:pointer; }
-    input[type="checkbox"] { width: 18px; height: 18px; }
+    :root{
+      --bg0:#0a0f1c; --bg1:#0e1526; --surface:#121b2e; --surface2:#0f1728;
+      --border:#223049; --border-soft:#1a2740;
+      --fg:#eef2fb; --muted:#9aa7c2; --faint:#6b7a99;
+      --c1:#22d3ee; --c2:#4f7bf7; --c3:#7c3aed;
+      --ok:#4ade80; --warn:#fbbf24; --danger:#fb7185;
+      --radius:16px;
+    }
+    *{box-sizing:border-box;}
+    html,body{margin:0;}
+    body{
+      font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+      color:var(--fg);
+      background:
+        radial-gradient(1200px 600px at 15% -10%, rgba(79,123,247,.16), transparent 60%),
+        radial-gradient(900px 500px at 110% 10%, rgba(124,58,237,.14), transparent 55%),
+        var(--bg0);
+      -webkit-font-smoothing:antialiased;
+    }
+    .wrap{padding:18px;max-width:520px;margin:0 auto;}
+
+    /* Header */
+    .brand{display:flex;align-items:center;gap:12px;margin-bottom:16px;}
+    .brand .logo{width:42px;height:42px;flex:none;filter:drop-shadow(0 4px 10px rgba(34,211,238,.25));}
+    .brand h1{font-size:19px;font-weight:800;margin:0;letter-spacing:.2px;}
+    .brand .tag{font-size:11px;font-weight:700;color:var(--c1);
+      border:1px solid var(--border);border-radius:999px;padding:2px 8px;margin-left:2px;
+      background:rgba(34,211,238,.08);text-transform:uppercase;letter-spacing:.6px;}
+    .brand .sub{font-size:12px;color:var(--muted);margin-top:2px;}
+
+    /* Cards */
+    .card{position:relative;background:linear-gradient(180deg,var(--surface),var(--surface2));
+      border:1px solid var(--border-soft);border-radius:var(--radius);padding:16px;margin-bottom:14px;
+      box-shadow:0 10px 30px -18px rgba(0,0,0,.8);}
+    .card.accent::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;border-radius:var(--radius) var(--radius) 0 0;
+      background:linear-gradient(90deg,var(--c1),var(--c2),var(--c3));opacity:.9;}
+    .card h2{font-size:14px;font-weight:800;margin:0 0 4px;}
+    .card .hint{color:var(--muted);font-size:12.5px;line-height:1.5;}
+
+    /* Status row */
+    .kv{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);margin-top:6px;flex-wrap:wrap;}
+    .dot{width:8px;height:8px;border-radius:50%;background:var(--faint);display:inline-block;}
+    .dot.on{background:var(--ok);box-shadow:0 0 0 4px rgba(74,222,128,.15);}
+    code{color:#dbe6ff;background:rgba(255,255,255,.04);padding:1px 6px;border-radius:6px;font-size:12px;}
+
+    /* Buttons */
+    .btn{appearance:none;border-radius:11px;padding:11px 14px;font-weight:700;font-size:13.5px;cursor:pointer;
+      border:1px solid var(--border);background:rgba(255,255,255,.03);color:var(--fg);width:100%;transition:.15s;}
+    .btn:hover{border-color:#30456a;background:rgba(255,255,255,.06);}
+    .btn.primary{border:none;color:#06122b;background:linear-gradient(90deg,var(--c1),var(--c2));box-shadow:0 8px 24px -10px rgba(79,123,247,.7);}
+    .btn.primary:hover{filter:brightness(1.05);}
+    .row2{display:flex;gap:10px;}
+    .row2 .btn{width:auto;flex:1;}
+    .mt{margin-top:10px;} .mt14{margin-top:14px;}
+
+    /* Toggle (switch) */
+    .switch{display:flex;align-items:center;gap:11px;cursor:pointer;color:var(--fg);font-size:13px;}
+    .switch input{position:absolute;opacity:0;width:0;height:0;}
+    .track{width:40px;height:23px;border-radius:999px;background:#2a3a57;position:relative;transition:.18s;flex:none;border:1px solid var(--border);}
+    .track::after{content:"";position:absolute;top:2px;left:2px;width:17px;height:17px;border-radius:50%;background:#cdd7ee;transition:.18s;}
+    .switch input:checked + .track{background:linear-gradient(90deg,var(--c1),var(--c2));}
+    .switch input:checked + .track::after{transform:translateX(17px);background:#fff;}
+
+    .status-pill{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;border:1px solid var(--border);}
+    .status-pill.on{color:#071b12;background:var(--ok);border-color:transparent;}
+    .status-pill.off{color:var(--muted);}
+
+    .small{font-size:11.5px;color:var(--faint);}
+    .list{font-size:12px;color:var(--muted);white-space:pre-wrap;margin-top:10px;line-height:1.55;}
+    a.link{color:var(--c1);text-decoration:none;} a.link:hover{text-decoration:underline;}
 
     /* Modal */
-    .modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.55); padding: 18px; }
-    .modal.show { display: flex; }
-    .modalCard { width: 100%; max-width: 420px; background:#0f172a; border:1px solid #1f2937; border-radius:16px; padding: 16px; }
-    .field { display:flex; flex-direction:column; gap:6px; margin-top: 10px; }
-    .field input { border-radius: 12px; border:1px solid #374151; padding: 10px 12px; background: #0b0f19; color: #e5e7eb; outline: none; }
-    .err { color: #fca5a5; font-size: 13px; margin-top: 10px; display:none; }
-    .ok { color: #86efac; font-size: 13px; margin-top: 10px; display:none; }
-    .small { font-size:12px; color:#9ca3af; margin-top: 8px; }
+    .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(4,8,16,.66);padding:16px;backdrop-filter:blur(3px);}
+    .modal.show{display:flex;}
+    .modalCard{width:100%;max-width:440px;max-height:92vh;overflow:auto;background:linear-gradient(180deg,#0f1728,#0c1322);
+      border:1px solid var(--border);border-radius:18px;padding:18px;box-shadow:0 30px 80px -30px #000;}
+    .modalCard h3{margin:0 0 4px;font-size:16px;font-weight:800;}
+    .field{display:flex;flex-direction:column;gap:6px;margin-top:11px;}
+    .field input[type=text],.field input[type=number],.field input[type=password]{
+      border-radius:11px;border:1px solid var(--border);padding:10px 12px;background:#0a1120;color:var(--fg);outline:none;font-size:13px;}
+    .field input:focus{border-color:var(--c2);box-shadow:0 0 0 3px rgba(79,123,247,.18);}
+    .sectlabel{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.7px;color:var(--c1);margin-top:16px;}
+    .inline{flex-direction:row;align-items:center;gap:10px;}
+    .err{color:var(--danger);font-size:12.5px;margin-top:10px;display:none;}
+    .ok{color:var(--ok);font-size:12.5px;margin-top:10px;display:none;}
+    .divider{height:1px;background:var(--border-soft);margin:14px 0;}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <div class="row">
-      <div class="logo"><img src="data:image/png;base64,{{LOGO_BASE64}}" alt="logo"></div>
+
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" aria-label="SpyCam">
+        <defs>
+          <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset=".55" stop-color="#4f7bf7"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+          <radialGradient id="ln" cx=".38" cy=".35" r=".75"><stop offset="0" stop-color="#fff"/><stop offset=".45" stop-color="#e8edff"/><stop offset="1" stop-color="#9fb2ff"/></radialGradient>
+          <linearGradient id="sw" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".95"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+        </defs>
+        <rect x="8" y="8" width="240" height="240" rx="58" fill="url(#bg)"/>
+        <g fill="none" stroke="#fff" stroke-linecap="round">
+          <circle cx="128" cy="128" r="78" stroke-opacity=".22" stroke-width="4"/>
+          <circle cx="128" cy="128" r="54" stroke-opacity=".32" stroke-width="4"/>
+        </g>
+        <path d="M128 128 L128 42 A86 86 0 0 1 206 104 Z" fill="url(#sw)" opacity=".55"/>
+        <circle cx="128" cy="128" r="34" fill="url(#ln)"/>
+        <circle cx="128" cy="128" r="13" fill="#0b1226"/>
+        <circle cx="118" cy="118" r="5" fill="#fff" fill-opacity=".9"/>
+        <circle cx="206" cy="104" r="7" fill="#fff"/>
+      </svg>
       <div>
-        <div style="font-size:18px; font-weight:800;">SpyCam Desktop Agent</div>
-        <div class="muted">
-          Local agent: <code id="endpoint">127.0.0.1:8765</code>
-          <span id="health" style="margin-left:10px;"></span>
-        </div>
-        <div class="muted" style="margin-top:6px;">
-          Scanner server: <code id="server">spycamera.test</code>
-        </div>
+        <h1>SpyCam <span class="tag">Agent</span></h1>
+        <div class="sub">Network &amp; camera scanner · work verifier</div>
       </div>
     </div>
 
-    <div style="height:14px;"></div>
+    <!-- Status -->
+    <div class="card accent">
+      <h2>Local agent</h2>
+      <div class="kv"><span id="healthDot" class="dot"></span> <span id="health">checking…</span> · endpoint <code id="endpoint">127.0.0.1:8765</code></div>
+      <div class="kv">Scanner server <code id="server">spycamera.test</code></div>
+      <div class="kv">Plan <span id="plan" class="status-pill off">unlicensed</span> <span id="planFeat" class="small"></span></div>
+      <div class="mt14 row2">
+        <button class="btn primary" onclick="openScanner()">Open scanner</button>
+        <button class="btn" onclick="openDashboardPage()">Dashboard</button>
+      </div>
+      <div class="mt row2">
+        <button class="btn" onclick="openSettings()">Settings</button>
+        <button class="btn" onclick="hideUi()">Hide</button>
+        <button class="btn" onclick="quitApp()">Quit</button>
+      </div>
+    </div>
 
+    <!-- Activity -->
     <div class="card">
-      <div class="muted">
-        This app runs in the background (tray) and powers the web scanner.
-        Network scan results are returned to the website; LAN network details are now included in the scan payload.
+      <div style="display:flex;align-items:center;gap:10px;">
+        <h2 style="margin:0;">Activity tracking</h2>
+        <span id="trackPill" class="status-pill off" style="margin-left:auto;">OFF</span>
       </div>
-
-      <div style="height:14px;"></div>
-
-      <button class="btn" onclick="openScanner()">Open Scanner Website</button>
-
-      <div style="height:10px;"></div>
-      <button class="btn secondary" onclick="openSettings()">Change server & port</button>
-
-      <div style="height:12px;"></div>
-
-      <label class="muted">
-        <input id="startup" type="checkbox" onchange="onStartupToggle()">
-        Run on startup
+      <div class="hint mt">
+        Records the active <b>app</b>, <b>window title</b> and <b>time</b> for a work report.
+        No keystrokes, screen or clipboard. While on, the tray shows it's running and you can
+        stop it anytime.
+      </div>
+      <label class="switch mt14">
+        <input id="track" type="checkbox" onchange="onTrackToggle()">
+        <span class="track"></span>
+        <span>I consent to activity tracking on this machine</span>
       </label>
-
-      <div style="height:14px;"></div>
-
-      <div class="row2">
-        <button class="btn secondary" onclick="hideUi()">Hide</button>
-        <button class="btn secondary" onclick="quitApp()">Quit</button>
+      <div id="perm" class="small mt"></div>
+      <div class="mt14 row2">
+        <button class="btn" onclick="viewActivity()">View my activity</button>
+        <button class="btn" onclick="openDashboardPage()">Open report</button>
       </div>
+      <div id="activityList" class="list"></div>
     </div>
+
+    <!-- Network -->
+    <div class="card">
+      <h2>Network &amp; camera scan</h2>
+      <div class="hint mt">
+        Passive discovery reads your ARP/neighbor table. Active discovery (optional) sends TCP
+        probes across your own subnet and fingerprints likely cameras (RTSP/ONVIF).
+      </div>
+      <label class="switch mt14">
+        <input id="activeScan" type="checkbox" onchange="onActiveScanToggle()">
+        <span class="track"></span>
+        <span>Enable active scanning of my network</span>
+      </label>
+      <div class="divider"></div>
+      <div class="small">Agent API token — paste into the scanner site:</div>
+      <div class="field"><input id="token" type="text" readonly onclick="this.select()" /></div>
+    </div>
+
+    <div class="small" style="text-align:center;opacity:.7;">Runs in the background from the status bar · settings are editable anytime</div>
   </div>
 
   <!-- Settings Modal -->
   <div id="settingsModal" class="modal" onclick="modalBackdrop(event)">
     <div class="modalCard">
-      <div style="font-size:16px; font-weight:800;">Scanner connection</div>
-      <div class="muted" style="margin-top:6px;">
-        Change the server address and port used for the scanner website & CORS origin.
-      </div>
+      <h3>Settings</h3>
+      <div class="hint">Server, sampling and alert options. Saved to the local config file.</div>
 
-      <div class="field">
-        <div class="muted">Admin password</div>
-        <input id="pw" type="password" placeholder="Enter password to unlock" />
-      </div>
+      <div class="sectlabel">Scanner connection</div>
+      <div class="field"><div class="small">Server address (IP or domain)</div><input id="host" type="text" placeholder="spycamera.test" /></div>
+      <div class="field"><div class="small">Port</div><input id="port" type="number" min="1" max="65535" placeholder="80" /></div>
+      <div class="field inline"><input id="https" type="checkbox" /><div class="small">Use HTTPS</div></div>
 
-      <div class="field">
-        <div class="muted">Server address (IP or domain)</div>
-        <input id="host" type="text" placeholder="spycamera.test" />
-      </div>
+      <div class="sectlabel">Activity sampling</div>
+      <div class="field"><div class="small">Sample interval (seconds)</div><input id="interval" type="number" min="1" max="3600" placeholder="5" /></div>
+      <div class="field"><div class="small">Idle threshold (seconds)</div><input id="idle" type="number" min="10" max="86400" placeholder="180" /></div>
 
-      <div class="field">
-        <div class="muted">Port</div>
-        <input id="port" type="number" min="1" max="65535" placeholder="80" />
-      </div>
+      <div class="sectlabel">New-device / camera alerts</div>
+      <div class="field"><div class="small">Webhook URL (Slack/Discord/automation)</div><input id="webhook" type="text" placeholder="https://hooks.example.com/…" /></div>
+      <div class="field inline"><input id="alertDevice" type="checkbox" /><div class="small">Alert on new device</div></div>
+      <div class="field inline"><input id="alertCamera" type="checkbox" /><div class="small">Alert on new camera</div></div>
 
-      <div class="field" style="flex-direction:row; align-items:center; gap:10px;">
-        <input id="https" type="checkbox" />
-        <div class="muted">Use HTTPS</div>
-      </div>
+      <div class="sectlabel">Licensing</div>
+      <div class="field"><div class="small">License server URL</div><input id="licUrl" type="text" placeholder="https://license.example.com" /></div>
+      <div class="field"><div class="small">License code(s) — one per line</div><textarea id="licCodes" rows="3" style="border-radius:11px;border:1px solid var(--border);padding:10px 12px;background:#0a1120;color:var(--fg);font-size:13px;resize:vertical;"></textarea></div>
+      <div class="field"><div class="small">Pinned server public key (optional, base64)</div><input id="licKey" type="text" placeholder="paste to pin the server identity" /></div>
+      <div id="licStatus" class="small mt"></div>
 
       <div id="err" class="err"></div>
       <div id="ok" class="ok"></div>
-      <div id="cfgPath" class="small"></div>
+      <div id="cfgPath" class="small mt"></div>
 
-      <div style="height:14px;"></div>
-
-      <div class="row2">
-        <button class="btn secondary" onclick="closeSettings()">Cancel</button>
-        <button class="btn" onclick="saveSettings()">Save</button>
+      <div class="mt14 row2">
+        <button class="btn" onclick="closeSettings()">Cancel</button>
+        <button class="btn primary" onclick="saveSettings()">Save</button>
       </div>
     </div>
   </div>
 
   <script>
-    function showErr(msg) {
-      const el = document.getElementById('err');
-      el.textContent = msg || '';
-      el.style.display = msg ? 'block' : 'none';
-      document.getElementById('ok').style.display = 'none';
+    function showErr(msg){const el=document.getElementById('err');el.textContent=msg||'';el.style.display=msg?'block':'none';document.getElementById('ok').style.display='none';}
+    function showOk(msg){const el=document.getElementById('ok');el.textContent=msg||'';el.style.display=msg?'block':'none';document.getElementById('err').style.display='none';}
+
+    async function loadStartup(){ try{ await startupEnabled(); }catch(e){} }
+    async function onStartupToggle(){} // startup toggle moved to tray menu
+
+    async function loadEndpointAndHealth(){
+      try{ if(typeof agentEndpoint==='function'){ const ep=await agentEndpoint(); if(ep) document.getElementById('endpoint').textContent=ep.replace('http://',''); } }catch(e){}
+      try{ if(typeof agentHealth==='function'){ const h=await agentHealth();
+        const ok=h&&h.ok; document.getElementById('health').textContent=ok?'running':'not running';
+        document.getElementById('healthDot').className='dot'+(ok?' on':''); } }catch(e){}
     }
-    function showOk(msg) {
-      const el = document.getElementById('ok');
-      el.textContent = msg || '';
-      el.style.display = msg ? 'block' : 'none';
-      document.getElementById('err').style.display = 'none';
+    async function loadServerInfo(){
+      try{ if(typeof getConnectionConfig==='function'){ const cfg=await getConnectionConfig();
+        if(cfg&&cfg.origin) document.getElementById('server').textContent=cfg.origin.replace(/^https?:\/\//,''); } }catch(e){}
+    }
+    async function loadActivityState(){
+      try{ if(typeof getActivityState==='function'){ const s=await getActivityState(); if(s){
+        document.getElementById('track').checked=!!s.consent;
+        document.getElementById('activeScan').checked=!!s.active_scan_consent;
+        const pill=document.getElementById('trackPill');
+        pill.textContent=s.consent?'ON':'OFF'; pill.className='status-pill '+(s.consent?'on':'off');
+      } } }catch(e){}
+      try{ if(typeof getAgentToken==='function'){ const t=await getAgentToken(); if(t) document.getElementById('token').value=t; } }catch(e){}
+    }
+    async function onTrackToggle(){ const on=document.getElementById('track').checked; try{ await setActivityConsent(on); }catch(e){} if(!on) document.getElementById('activityList').textContent=''; loadActivityState(); }
+    async function onActiveScanToggle(){ const on=document.getElementById('activeScan').checked; try{ await setActiveScanConsent(on); }catch(e){} }
+
+    async function viewActivity(){
+      try{ const rows=await getMyActivity();
+        if(!rows||!rows.length){ document.getElementById('activityList').textContent='No activity recorded yet (tracking off, or nothing sampled).'; return; }
+        const lines=rows.slice(0,15).map(r=>{ const m=(r.seconds/60).toFixed(1); const a=r.app||'(unknown)'; const t=r.title?(' — '+r.title):''; return m+' min  '+a+t; });
+        document.getElementById('activityList').textContent=lines.join('\n');
+      }catch(e){ document.getElementById('activityList').textContent='Could not read activity.'; }
+    }
+    async function openDashboardPage(){ try{ await openDashboard(); }catch(e){} }
+
+    async function loadPermission(){
+      const el=document.getElementById('perm'); if(!el) return;
+      try{ const p=await getPermissionStatus();
+        if(p&&p.ok){ el.innerHTML='<span style="color:var(--ok)">● Window titles can be captured.</span>'; }
+        else{ el.innerHTML='<span style="color:var(--warn)">● '+((p&&p.detail)||'Window-title capture needs permission.')+'</span> <a class="link" href="#" onclick="grantPermission();return false;">Open settings</a>'; }
+      }catch(e){ el.textContent=''; }
+    }
+    async function grantPermission(){ try{ await openPermissionSettings(); }catch(e){} }
+
+    function modalBackdrop(ev){ if(ev.target&&ev.target.id==='settingsModal') closeSettings(); }
+    async function openSettings(){
+      showErr(''); showOk(''); document.getElementById('settingsModal').classList.add('show');
+      try{ const cfg=await getConnectionConfig();
+        document.getElementById('host').value=(cfg&&cfg.host)?cfg.host:'';
+        document.getElementById('port').value=(cfg&&cfg.port)?cfg.port:'';
+        document.getElementById('https').checked=!!(cfg&&cfg.https);
+        document.getElementById('interval').value=(cfg&&cfg.sample_interval_sec)?cfg.sample_interval_sec:5;
+        document.getElementById('idle').value=(cfg&&cfg.idle_threshold_sec)?cfg.idle_threshold_sec:180;
+        document.getElementById('webhook').value=(cfg&&cfg.webhook_url)?cfg.webhook_url:'';
+        document.getElementById('alertDevice').checked=!!(cfg&&cfg.alert_new_device);
+        document.getElementById('alertCamera').checked=!!(cfg&&cfg.alert_new_camera);
+        document.getElementById('cfgPath').textContent=cfg&&cfg.config_path?('Saved at: '+cfg.config_path):'';
+      }catch(e){}
+    }
+    function closeSettings(){ document.getElementById('settingsModal').classList.remove('show'); }
+
+    function describeEntitlement(info){
+      const ent=info&&info.entitlement;
+      const feats=(ent&&ent.features)||[];
+      const plans=((ent&&ent.codes)||[]).filter(c=>c.valid).map(c=>c.plan).filter(Boolean);
+      return {feats, plans, degraded:ent?ent.degraded:true, grace:ent&&ent.in_grace};
+    }
+    async function loadLicense(){
+      try{
+        if(typeof getLicenseConfig!=='function') return;
+        const info=await getLicenseConfig();
+        const d=describeEntitlement(info);
+        const plan=document.getElementById('plan');
+        const label=d.plans.length?d.plans.join('+'):(d.feats.length>1?'licensed':'free');
+        plan.textContent=label; plan.className='status-pill '+(d.plans.length?'on':'off');
+        // Expiry warning (within 14 days).
+        const exp=info.entitlement&&info.entitlement.soonest_expiry;
+        let expNote='';
+        if(exp){ const days=Math.ceil((new Date(exp)-new Date())/86400000);
+          if(days<=14){ expNote=' · ⚠ license expires in '+(days<0?'(expired)':days+'d'); } }
+        const pf=document.getElementById('planFeat');
+        pf.textContent=(d.feats.length?('· '+d.feats.join(', ')):'')+expNote;
+        pf.style.color=expNote?'var(--warn)':'';
+        // settings fields
+        const url=document.getElementById('licUrl'); if(url) url.value=info.server_url||'';
+        const codes=document.getElementById('licCodes'); if(codes) codes.value=(info.codes||[]).join('\n');
+        const key=document.getElementById('licKey'); if(key) key.value=info.pinned_key_value||'';
+        const st=document.getElementById('licStatus');
+        if(st){ let msg='Device '+((info.device_id||'').slice(0,8))+'… · '+d.feats.length+' feature(s)';
+          if(d.grace) msg+=' · using cached license (server unreachable)';
+          else if(d.degraded) msg+=' · unlicensed/degraded';
+          st.textContent=msg; }
+      }catch(e){}
     }
 
-    async function loadStartup() {
-      try {
-        const v = await startupEnabled();
-        document.getElementById('startup').checked = !!v;
-      } catch (e) {}
+    async function saveSettings(){
+      showErr(''); showOk('');
+      const host=document.getElementById('host').value||'';
+      const port=parseInt(document.getElementById('port').value||'0',10);
+      const https=!!document.getElementById('https').checked;
+      const interval=parseInt(document.getElementById('interval').value||'5',10);
+      const idle=parseInt(document.getElementById('idle').value||'180',10);
+      const webhook=document.getElementById('webhook').value||'';
+      const alertDevice=!!document.getElementById('alertDevice').checked;
+      const alertCamera=!!document.getElementById('alertCamera').checked;
+      const licUrl=document.getElementById('licUrl').value||'';
+      const licCodes=document.getElementById('licCodes').value||'';
+      const licKey=document.getElementById('licKey').value||'';
+      try{
+        const res=await saveConnectionConfig(host,port,https);
+        await saveActivitySettings(interval,idle);
+        await saveAlertSettings(webhook,alertDevice,alertCamera);
+        if(typeof saveLicenseConfig==='function') await saveLicenseConfig(licUrl,licCodes,licKey);
+        showOk('Saved. Server: '+(res.origin||''));
+        await loadServerInfo(); await loadLicense();
+        setTimeout(closeSettings,700);
+      }catch(e){ showErr((e&&e.message)?e.message:String(e||'Failed')); }
     }
 
-    async function onStartupToggle() {
-      const checked = document.getElementById('startup').checked;
-      try { await setStartupEnabled(checked); } catch (e) {}
-    }
-
-    async function loadEndpointAndHealth() {
-      try {
-        if (typeof agentEndpoint === 'function') {
-          const ep = await agentEndpoint();
-          if (ep) document.getElementById('endpoint').textContent = ep.replace('http://', '');
-        }
-      } catch (e) {}
-
-      try {
-        if (typeof agentHealth === 'function') {
-          const h = await agentHealth();
-          document.getElementById('health').textContent = h && h.ok ? '• running' : '• not running';
-        }
-      } catch (e) {}
-    }
-
-    async function loadServerInfo() {
-      try {
-        if (typeof getConnectionConfig === 'function') {
-          const cfg = await getConnectionConfig();
-          if (cfg && cfg.origin) {
-            document.getElementById('server').textContent = cfg.origin.replace(/^https?:\/\//, '');
-          }
-        }
-      } catch (e) {}
-    }
-
-    function modalBackdrop(ev) {
-      if (ev.target && ev.target.id === 'settingsModal') closeSettings();
-    }
-
-    async function openSettings() {
-      showErr('');
-      showOk('');
-      document.getElementById('pw').value = '';
-      document.getElementById('settingsModal').classList.add('show');
-
-      try {
-        const cfg = await getConnectionConfig();
-        document.getElementById('host').value = (cfg && cfg.host) ? cfg.host : '';
-        document.getElementById('port').value = (cfg && cfg.port) ? cfg.port : '';
-        document.getElementById('https').checked = !!(cfg && cfg.https);
-        document.getElementById('cfgPath').textContent = cfg && cfg.config_path ? ('Saved at: ' + cfg.config_path) : '';
-      } catch (e) {}
-    }
-
-    function closeSettings() {
-      document.getElementById('settingsModal').classList.remove('show');
-    }
-
-    async function saveSettings() {
-      showErr('');
-      showOk('');
-
-      const pw = document.getElementById('pw').value || '';
-      const host = document.getElementById('host').value || '';
-      const port = parseInt(document.getElementById('port').value || '0', 10);
-      const https = !!document.getElementById('https').checked;
-
-      try {
-        const res = await saveConnectionConfig(pw, host, port, https);
-        showOk('Saved. New server: ' + (res.origin || ''));
-        await loadServerInfo();
-        setTimeout(closeSettings, 700);
-      } catch (e) {
-        showErr((e && e.message) ? e.message : String(e || 'Failed'));
-      }
-    }
-
-    loadStartup();
-    loadEndpointAndHealth();
-    loadServerInfo();
-    setInterval(loadEndpointAndHealth, 5000);
-    setInterval(loadServerInfo, 5000);
+    loadStartup(); loadEndpointAndHealth(); loadServerInfo(); loadActivityState(); loadPermission(); loadLicense();
+    setInterval(loadEndpointAndHealth,5000);
+    setInterval(loadServerInfo,5000);
+    setInterval(loadActivityState,5000);
+    setInterval(loadPermission,8000);
+    setInterval(loadLicense,15000);
   </script>
 </body>
 </html>

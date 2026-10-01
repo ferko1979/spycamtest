@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="SpyCam">
+  <defs>
+    <linearGradient id="badge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="0.55" stop-color="#4f7bf7"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <radialGradient id="lens" cx="0.38" cy="0.35" r="0.75">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.45" stop-color="#e8edff"/>
+      <stop offset="1" stop-color="#9fb2ff"/>
+    </radialGradient>
+    <linearGradient id="sweep" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Badge -->
+  <rect x="8" y="8" width="240" height="240" rx="58" fill="url(#badge)"/>
+  <rect x="8" y="8" width="240" height="240" rx="58" fill="none" stroke="#ffffff" stroke-opacity="0.18" stroke-width="2"/>
+
+  <!-- Radar rings -->
+  <g fill="none" stroke="#ffffff" stroke-linecap="round">
+    <circle cx="128" cy="128" r="78" stroke-opacity="0.22" stroke-width="4"/>
+    <circle cx="128" cy="128" r="54" stroke-opacity="0.32" stroke-width="4"/>
+  </g>
+
+  <!-- Radar sweep wedge -->
+  <path d="M128 128 L128 42 A86 86 0 0 1 206 104 Z" fill="url(#sweep)" opacity="0.55"/>
+
+  <!-- Camera lens -->
+  <circle cx="128" cy="128" r="34" fill="url(#lens)"/>
+  <circle cx="128" cy="128" r="34" fill="none" stroke="#0b1020" stroke-opacity="0.12" stroke-width="2"/>
+  <circle cx="128" cy="128" r="13" fill="#0b1226"/>
+  <circle cx="118" cy="118" r="5" fill="#ffffff" fill-opacity="0.9"/>
+
+  <!-- Scan node -->
+  <circle cx="206" cy="104" r="7" fill="#ffffff"/>
+</svg>

@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SpyCam Scanner</title>
+  <style>
+    :root{
+      --bg0:#0a0f1c; --surface:#121b2e; --surface2:#0f1728;
+      --border:#223049; --border-soft:#1a2740;
+      --fg:#eef2fb; --muted:#9aa7c2; --faint:#6b7a99;
+      --c1:#22d3ee; --c2:#4f7bf7; --c3:#7c3aed;
+      --ok:#4ade80; --warn:#fbbf24; --danger:#fb7185;
+      --radius:16px;
+    }
+    *{box-sizing:border-box;}
+    body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--fg);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, rgba(79,123,247,.16), transparent 60%),
+        radial-gradient(1000px 500px at 110% 0%, rgba(124,58,237,.13), transparent 55%),
+        var(--bg0);
+      -webkit-font-smoothing:antialiased;}
+    header{display:flex;align-items:center;gap:13px;padding:18px 20px;border-bottom:1px solid var(--border-soft);
+      position:sticky;top:0;backdrop-filter:blur(8px);background:rgba(10,15,28,.72);z-index:5;}
+    header .logo{width:36px;height:36px;filter:drop-shadow(0 4px 10px rgba(34,211,238,.25));}
+    header h1{font-size:16px;margin:0;font-weight:800;}
+    header .sub{font-size:12px;color:var(--muted);}
+    header .right{margin-left:auto;font-size:12.5px;}
+    main{padding:20px;max-width:1000px;margin:0 auto;display:flex;flex-direction:column;gap:16px;}
+    .card{position:relative;background:linear-gradient(180deg,var(--surface),var(--surface2));
+      border:1px solid var(--border-soft);border-radius:var(--radius);padding:18px;
+      box-shadow:0 14px 40px -24px rgba(0,0,0,.8);}
+    .card::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;border-radius:var(--radius) var(--radius) 0 0;
+      background:linear-gradient(90deg,var(--c1),var(--c2),var(--c3));opacity:.85;}
+    h2{font-size:15px;margin:0 0 12px;font-weight:800;}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+    button{border-radius:11px;padding:10px 14px;font-weight:700;font-size:13px;cursor:pointer;
+      border:1px solid var(--border);background:rgba(255,255,255,.03);color:var(--fg);transition:.15s;}
+    button:hover{border-color:#30456a;background:rgba(255,255,255,.06);}
+    button.primary{border:none;color:#06122b;background:linear-gradient(90deg,var(--c1),var(--c2));box-shadow:0 8px 22px -10px rgba(79,123,247,.7);}
+    .muted{color:var(--muted);font-size:13px;}
+    .kpis{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;}
+    .kpi{flex:1;min-width:120px;background:rgba(255,255,255,.025);border:1px solid var(--border-soft);border-radius:12px;padding:12px 14px;}
+    .kpi .n{font-size:22px;font-weight:800;letter-spacing:.3px;}
+    .kpi .l{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-top:2px;}
+    table{width:100%;border-collapse:collapse;font-size:13px;}
+    th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border-soft);vertical-align:top;}
+    th{color:var(--muted);font-weight:600;font-size:12px;}
+    tr:hover td{background:rgba(255,255,255,.02);}
+    .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;border:1px solid var(--border);}
+    .pill.cam{color:var(--danger);border-color:#7f1d2b;background:rgba(251,113,133,.08);}
+    .pill.ok{color:#071b12;background:var(--ok);border-color:transparent;}
+    .bar{height:8px;background:#22314c;border-radius:6px;overflow:hidden;}
+    .bar>span{display:block;height:100%;background:linear-gradient(90deg,var(--c1),var(--c2));}
+    .status{font-size:12.5px;} .status.ok{color:var(--ok);} .status.err{color:var(--danger);}
+    code{color:#dbe6ff;background:rgba(255,255,255,.04);padding:1px 6px;border-radius:6px;}
+    .scroll{overflow-x:auto;}
+    a{color:inherit;}
+  </style>
+</head>
+<body>
+  <header>
+    <svg class="logo" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" aria-label="SpyCam">
+      <defs>
+        <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset=".55" stop-color="#4f7bf7"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+        <radialGradient id="ln" cx=".38" cy=".35" r=".75"><stop offset="0" stop-color="#fff"/><stop offset=".45" stop-color="#e8edff"/><stop offset="1" stop-color="#9fb2ff"/></radialGradient>
+        <linearGradient id="sw" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".95"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+      </defs>
+      <rect x="8" y="8" width="240" height="240" rx="58" fill="url(#bg)"/>
+      <g fill="none" stroke="#fff" stroke-linecap="round"><circle cx="128" cy="128" r="78" stroke-opacity=".22" stroke-width="4"/><circle cx="128" cy="128" r="54" stroke-opacity=".32" stroke-width="4"/></g>
+      <path d="M128 128 L128 42 A86 86 0 0 1 206 104 Z" fill="url(#sw)" opacity=".55"/>
+      <circle cx="128" cy="128" r="34" fill="url(#ln)"/><circle cx="128" cy="128" r="13" fill="#0b1226"/><circle cx="118" cy="118" r="5" fill="#fff" fill-opacity=".9"/><circle cx="206" cy="104" r="7" fill="#fff"/>
+    </svg>
+    <div><h1>SpyCam Scanner</h1><div class="sub">local agent dashboard</div></div>
+    <span id="license" class="right" style="margin-left:auto;"></span>
+    <span id="health" class="status" style="margin-left:14px;"></span>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>Network &amp; cameras</h2>
+      <div class="kpis">
+        <div class="kpi"><div class="n" id="kDevices">—</div><div class="l">Devices</div></div>
+        <div class="kpi"><div class="n" id="kCameras">—</div><div class="l">Likely cameras</div></div>
+        <div class="kpi"><div class="n" id="kNetworks">—</div><div class="l">Networks</div></div>
+      </div>
+      <div class="row">
+        <button class="primary" onclick="scan(false)">Scan network</button>
+        <button onclick="scan(true)">Active scan (opt-in)</button>
+        <button onclick="loadCameras()">Find cameras</button>
+        <span id="scanStatus" class="muted"></span>
+      </div>
+      <div id="alerts" class="muted" style="margin-top:12px;"></div>
+      <div id="networks" class="muted" style="margin-top:8px;"></div>
+      <div class="scroll"><table id="devices" style="margin-top:12px;"><thead><tr>
+        <th>IP</th><th>MAC</th><th>Vendor</th><th>Hostname</th><th>Ports</th><th>Camera?</th>
+      </tr></thead><tbody></tbody></table></div>
+    </section>
+
+    <section class="card">
+      <h2>Activity · work verifier</h2>
+      <div class="kpis">
+        <div class="kpi"><div class="n" id="kActive">—</div><div class="l">Active min</div></div>
+        <div class="kpi"><div class="n" id="kIdle">—</div><div class="l">Idle min</div></div>
+        <div class="kpi"><div class="n" id="kTop">—</div><div class="l">Top app</div></div>
+      </div>
+      <div class="row">
+        <button onclick="loadActivity()">Refresh</button>
+        <button class="primary" onclick="buildReport()">Build report</button>
+        <button id="dlJson">Download JSON</button>
+        <button id="dlCsv">Download CSV</button>
+        <span id="actStatus" class="muted"></span>
+      </div>
+      <div id="reportSummary" class="muted" style="margin-top:12px;"></div>
+      <div class="scroll"><table id="activity" style="margin-top:12px;"><thead><tr>
+        <th style="width:48%">App / window</th><th>Minutes</th><th style="width:38%">Share</th>
+      </tr></thead><tbody></tbody></table></div>
+      <div class="muted" style="margin-top:10px;">
+        Tracking is controlled from the desktop agent (on-device consent). This dashboard only displays what is recorded.
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const TOKEN=(typeof window.AGENT_TOKEN==='string')?window.AGENT_TOKEN:'';
+    const BASE=(typeof window.AGENT_BASE==='string'&&window.AGENT_BASE)?window.AGENT_BASE:'';
+    function authHeaders(){return TOKEN?{'Authorization':'Bearer '+TOKEN}:{};}
+    async function api(path){const r=await fetch(BASE+path,{headers:authHeaders()});if(!r.ok)throw new Error('HTTP '+r.status+' for '+path);return r.json();}
+    function setStatus(id,msg,isErr){const el=document.getElementById(id);el.textContent=msg||'';el.className=(id==='health'?'right ':'')+'status '+(isErr?'err':'ok');}
+    function esc(s){return (s==null?'':String(s)).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+    function fmtMin(sec){return (sec/60).toFixed(1);}
+
+    async function health(){ try{const h=await api('/health'); setStatus('health','● agent '+(h.ok?'running':'down')+' ('+(h.os||'?')+')',!h.ok);}catch(e){setStatus('health','● agent unreachable',true);} }
+
+    async function license(){
+      const el=document.getElementById('license'); if(!el) return;
+      try{
+        const info=await api('/license'); const ent=info&&info.entitlement;
+        const feats=(ent&&ent.features)||[];
+        const plans=((ent&&ent.codes)||[]).filter(c=>c.valid).map(c=>c.plan).filter(Boolean);
+        let label=plans.length?plans.join('+'):(feats.length>1?'licensed':'free');
+        let color='var(--c1)';
+        if(ent&&ent.in_grace){label+=' (cached)';color='var(--warn)';}
+        else if(!plans.length){color='var(--muted)';}
+        let expNote='';
+        const exp=ent&&ent.soonest_expiry;
+        if(exp){ const days=Math.ceil((new Date(exp)-new Date())/86400000);
+          if(days<=14){ expNote=' <span style="color:var(--warn);font-size:11.5px;">⚠ expires '+(days<0?'(expired)':'in '+days+'d')+'</span>'; } }
+        el.innerHTML='<span class="pill" style="border-color:'+color+';color:'+color+'">'+esc(label)+'</span>'+
+          ' <span class="muted" style="font-size:11.5px;">'+feats.length+' feature(s)</span>'+expNote;
+      }catch(e){ el.innerHTML='<span class="pill" style="color:var(--muted)">license n/a</span>'; }
+    }
+
+    function renderNetworks(nets){
+      document.getElementById('kNetworks').textContent=(nets||[]).length;
+      if(!nets||!nets.length){document.getElementById('networks').textContent='';return;}
+      document.getElementById('networks').innerHTML=nets.map(n=>'Interface <code>'+esc(n.interface)+'</code> — '+esc(n.ip)+' ('+esc(n.cidr)+')'+(n.gateway?', gw '+esc(n.gateway):'')).join('<br>');
+    }
+    function renderDevices(devs){
+      const tb=document.querySelector('#devices tbody');tb.innerHTML='';
+      let cams=0;
+      (devs||[]).forEach(d=>{
+        if(d.likely_camera)cams++;
+        const cam=d.likely_camera?'<span class="pill cam" title="'+esc((d.camera_reasons||[]).join('; '))+'">likely camera</span>':'';
+        const tr=document.createElement('tr');
+        tr.innerHTML='<td>'+esc(d.ip)+'</td><td>'+esc(d.mac)+'</td><td>'+esc(d.vendor||'')+'</td><td>'+esc(d.hostname||'')+'</td><td>'+esc((d.open_ports||[]).join(', '))+'</td><td>'+cam+'</td>';
+        tb.appendChild(tr);
+      });
+      document.getElementById('kDevices').textContent=(devs||[]).length;
+      document.getElementById('kCameras').textContent=cams;
+    }
+    function renderAlerts(alerts){
+      const el=document.getElementById('alerts');
+      if(!alerts||!alerts.length){el.innerHTML='';return;}
+      el.innerHTML=alerts.map(a=>'<span class="pill'+(a.kind==='new_camera'?' cam':'')+'">'+esc(a.kind)+'</span> '+esc(a.message)).join('<br>');
+    }
+
+    async function scan(active){
+      setStatus('scanStatus',active?'Active scanning…':'Scanning…');
+      try{ const data=await api('/scan'+(active?'?active=1':''));
+        renderNetworks(data.networks); renderDevices(data.devices); renderAlerts(data.alerts);
+        let note=(data.devices||[]).length+' device(s)';
+        if(active&&!data.active)note+=' (active scan off in settings — passive only)';
+        setStatus('scanStatus',note);
+      }catch(e){ setStatus('scanStatus',e.message,true); }
+    }
+    async function loadCameras(){
+      setStatus('scanStatus','Finding cameras…');
+      try{ const data=await api('/cameras?active=1'); renderDevices(data.cameras); setStatus('scanStatus',(data.cameras||[]).length+' likely camera(s)'); }
+      catch(e){ setStatus('scanStatus',e.message,true); }
+    }
+
+    async function loadActivity(){
+      setStatus('actStatus','Loading…');
+      try{ const data=await api('/activity'); const rows=data.usage||[];
+        const total=rows.reduce((a,r)=>a+(r.seconds||0),0)||1;
+        const tb=document.querySelector('#activity tbody');tb.innerHTML='';
+        rows.forEach(r=>{ const pct=Math.round((r.seconds/total)*100);
+          const label=esc(r.app||'(unknown)')+(r.title?' — '+esc(r.title):'');
+          const tr=document.createElement('tr');
+          tr.innerHTML='<td>'+label+'</td><td>'+fmtMin(r.seconds)+'</td><td><div class="bar"><span style="width:'+pct+'%"></span></div></td>';
+          tb.appendChild(tr); });
+        const top=rows.find(r=>r.app&&r.app!=='(idle)');
+        document.getElementById('kTop').textContent=top?(top.app.length>10?top.app.slice(0,10)+'…':top.app):'—';
+        setStatus('actStatus',data.enabled?('tracking on — since '+esc(data.since)):'tracking off (enable in the agent window)');
+      }catch(e){ setStatus('actStatus',e.message,true); }
+    }
+    async function buildReport(){
+      setStatus('actStatus','Building report…');
+      try{ const r=await api('/report');
+        document.getElementById('kActive').textContent=fmtMin(r.active_seconds);
+        document.getElementById('kIdle').textContent=fmtMin(r.idle_seconds);
+        const cats=(r.categories||[]).map(c=>esc(c.category)+' '+fmtMin(c.seconds)+'m').join(' · ');
+        const signed=r.signature?'<span class="pill ok">signed '+esc(r.signature.algo)+'</span>':'';
+        document.getElementById('reportSummary').innerHTML=
+          'Active <b>'+fmtMin(r.active_seconds)+'</b> min · idle <b>'+fmtMin(r.idle_seconds)+'</b> min · window from '+esc(r.window_start)+
+          ' · host <code>'+esc(r.host)+'</code> · user <code>'+esc(r.user)+'</code> '+signed+(cats?'<br>Categories: '+cats:'');
+        await loadActivity();
+      }catch(e){ setStatus('actStatus',e.message,true); }
+    }
+    async function download(fmt){
+      try{ const res=await fetch(BASE+'/export?format='+fmt,{headers:authHeaders()}); if(!res.ok)throw new Error('HTTP '+res.status);
+        const blob=await res.blob(); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='work-report.'+fmt; a.click(); URL.revokeObjectURL(a.href);
+      }catch(e){ setStatus('actStatus',e.message,true); }
+    }
+    document.getElementById('dlJson').addEventListener('click',()=>download('json'));
+    document.getElementById('dlCsv').addEventListener('click',()=>download('csv'));
+
+    health(); license(); scan(false); loadActivity();
+    setInterval(health,10000);
+    setInterval(license,15000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+# License server runtime artifacts
+/license-server
+/license-admin
+license-key.seed
+license-audit.log
+/cmd/license-server/license-key.seed
+/cmd/license-server/licenses.json
+/cmd/license-server/license-audit.log

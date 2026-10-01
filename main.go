@@ -324,7 +324,7 @@ func showUiWindow() {
 	defer w.Destroy()
 
 	w.SetTitle("SpyCam Agent")
-	w.SetSize(460, 520, webview.HintNone)
+	w.SetSize(500, 720, webview.HintNone)
 
 	// --- JS bindings used by ui/index.html ---
 	_ = w.Bind("openScanner", func() {

@@ -43,6 +43,10 @@ func main() {
 		cmdIssue(c, args[1:])
 	case "list":
 		cmdList(c)
+	case "usage":
+		cmdUsage(c)
+	case "audit":
+		cmdAudit(c)
 	case "revoke":
 		requireCode(args, func(code string) error { return c.Revoke(code) }, "revoked")
 	case "enable":
@@ -120,6 +124,44 @@ func cmdList(c license.AdminClient) {
 	_ = tw.Flush()
 }
 
+func cmdUsage(c license.AdminClient) {
+	list, err := c.List()
+	if err != nil {
+		fatal(err.Error())
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+	fmt.Fprintln(tw, "CODE\tDEVICE\tLAST SEEN")
+	any := false
+	for _, l := range list {
+		for dev, seen := range l.DeviceSeen {
+			any = true
+			fmt.Fprintf(tw, "%s\t%s\t%s\n", l.Code, dev, seen.Format(time.RFC3339))
+		}
+	}
+	if !any {
+		fmt.Println("(no device check-ins recorded yet)")
+		return
+	}
+	_ = tw.Flush()
+}
+
+func cmdAudit(c license.AdminClient) {
+	entries, err := c.Audit()
+	if err != nil {
+		fatal(err.Error())
+	}
+	if len(entries) == 0 {
+		fmt.Println("(no admin actions recorded)")
+		return
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+	fmt.Fprintln(tw, "TIME\tACTION\tCODE\tOK\tDETAIL")
+	for _, e := range entries {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%v\t%s\n", e.Time.Format(time.RFC3339), e.Action, e.Code, e.OK, e.Detail)
+	}
+	_ = tw.Flush()
+}
+
 func requireCode(args []string, fn func(string) error, verb string) {
 	if len(args) < 2 {
 		fatal("usage: " + args[0] + " <CODE>")
@@ -140,6 +182,8 @@ Usage:
 Commands:
   issue   -plan P -features a,b,c [-max-devices N] [-expires-days D] [-code C]
   list
+  usage
+  audit
   revoke  <CODE>
   enable  <CODE>
   delete  <CODE>

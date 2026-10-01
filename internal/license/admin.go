@@ -11,6 +11,42 @@ import (
 	"time"
 )
 
+// AuditEntry records one admin action for traceability.
+type AuditEntry struct {
+	Time   time.Time `json:"time"`
+	Action string    `json:"action"` // issue | revoke | enable | delete
+	Code   string    `json:"code"`
+	Detail string    `json:"detail,omitempty"`
+	OK     bool      `json:"ok"`
+}
+
+const auditRingMax = 500
+
+// record appends an audit entry to the ring and the optional sink. Caller must
+// NOT hold s.mu (it takes the lock itself).
+func (s *Store) record(e AuditEntry) {
+	s.mu.Lock()
+	if e.Time.IsZero() {
+		e.Time = s.now().UTC().Truncate(time.Second)
+	}
+	s.audit = append(s.audit, e)
+	if len(s.audit) > auditRingMax {
+		s.audit = s.audit[len(s.audit)-auditRingMax:]
+	}
+	hook := s.auditHook
+	s.mu.Unlock()
+	if hook != nil {
+		hook(e)
+	}
+}
+
+// AuditLog returns a copy of the recent admin-action entries (newest last).
+func (s *Store) AuditLog() []AuditEntry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]AuditEntry(nil), s.audit...)
+}
+
 // IssueRequest creates (or overwrites) a license code. If Code is empty a
 // random code is generated.
 type IssueRequest struct {
@@ -159,13 +195,15 @@ func (s *Store) registerAdminRoutes(mux *http.ServeMux) {
 		}
 		al, err := s.Issue(req)
 		if err != nil {
+			s.record(AuditEntry{Action: "issue", Detail: err.Error(), OK: false})
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		s.record(AuditEntry{Action: "issue", Code: al.Code, Detail: al.Plan, OK: true})
 		writeJSON(w, al)
 	}))
 
-	codeAction := func(apply func(code string) error) http.HandlerFunc {
+	codeAction := func(action string, apply func(code string) error) http.HandlerFunc {
 		return admin(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -179,19 +217,25 @@ func (s *Store) registerAdminRoutes(mux *http.ServeMux) {
 				return
 			}
 			if err := apply(body.Code); err != nil {
+				s.record(AuditEntry{Action: action, Code: body.Code, Detail: err.Error(), OK: false})
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
+			s.record(AuditEntry{Action: action, Code: body.Code, OK: true})
 			writeJSON(w, map[string]any{"ok": true, "code": body.Code})
 		})
 	}
 
-	mux.HandleFunc("/api/admin/revoke", codeAction(func(c string) error { return s.SetDisabled(c, true) }))
-	mux.HandleFunc("/api/admin/enable", codeAction(func(c string) error { return s.SetDisabled(c, false) }))
-	mux.HandleFunc("/api/admin/delete", codeAction(func(c string) error { return s.Delete(c) }))
+	mux.HandleFunc("/api/admin/revoke", codeAction("revoke", func(c string) error { return s.SetDisabled(c, true) }))
+	mux.HandleFunc("/api/admin/enable", codeAction("enable", func(c string) error { return s.SetDisabled(c, false) }))
+	mux.HandleFunc("/api/admin/delete", codeAction("delete", func(c string) error { return s.Delete(c) }))
 
 	mux.HandleFunc("/api/admin/list", admin(func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"licenses": s.List()})
+	}))
+
+	mux.HandleFunc("/api/admin/audit", admin(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{"audit": s.AuditLog()})
 	}))
 }
 
@@ -252,30 +296,45 @@ func (c AdminClient) Delete(code string) error {
 	return c.do("/api/admin/delete", map[string]string{"code": code}, nil)
 }
 
+// Audit returns the recent admin-action log via the admin API.
+func (c AdminClient) Audit() ([]AuditEntry, error) {
+	var out struct {
+		Audit []AuditEntry `json:"audit"`
+	}
+	if err := c.get("/api/admin/audit", &out); err != nil {
+		return nil, err
+	}
+	return out.Audit, nil
+}
+
+// get performs an authenticated GET and decodes JSON into out.
+func (c AdminClient) get(path string, out any) error {
+	client := c.HTTP
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
+	req, err := http.NewRequest(http.MethodGet, trimSlash(c.ServerURL)+path, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("admin HTTP %d", resp.StatusCode)
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
+}
+
 // List returns all licenses via the admin API.
 func (c AdminClient) List() ([]AdminLicense, error) {
 	var out struct {
 		Licenses []AdminLicense `json:"licenses"`
 	}
-	// list uses GET but accepts the same auth; reuse do with nil body on a GET.
-	client := c.HTTP
-	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Second}
-	}
-	req, err := http.NewRequest(http.MethodGet, trimSlash(c.ServerURL)+"/api/admin/list", nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+c.Token)
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("admin HTTP %d", resp.StatusCode)
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := c.get("/api/admin/list", &out); err != nil {
 		return nil, err
 	}
 	return out.Licenses, nil

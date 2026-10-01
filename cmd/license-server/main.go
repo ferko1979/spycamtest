@@ -34,6 +34,7 @@ func main() {
 	licensesPath := flag.String("licenses", "licenses.json", "path to licenses JSON file")
 	keyPath := flag.String("key", "license-key.seed", "path to Ed25519 signing seed (created if missing)")
 	adminToken := flag.String("admin-token", os.Getenv("LICENSE_ADMIN_TOKEN"), "admin API bearer token (or LICENSE_ADMIN_TOKEN env); empty disables the admin API")
+	auditPath := flag.String("audit", "license-audit.log", "append-only admin audit log (JSON lines)")
 	flag.Parse()
 
 	seed := loadOrCreateSeed(*keyPath)
@@ -46,6 +47,17 @@ func main() {
 	if *adminToken != "" {
 		store.SetAdminToken(*adminToken)
 		log.Printf("admin API enabled")
+		// Append each admin action to an audit log file (JSON lines).
+		store.SetAuditHook(func(e license.AuditEntry) {
+			f, err := os.OpenFile(*auditPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+			if err != nil {
+				log.Printf("audit open: %v", err)
+				return
+			}
+			defer f.Close()
+			b, _ := json.Marshal(e)
+			_, _ = f.Write(append(b, '\n'))
+		})
 	} else {
 		log.Printf("admin API disabled (set -admin-token or LICENSE_ADMIN_TOKEN to enable)")
 	}

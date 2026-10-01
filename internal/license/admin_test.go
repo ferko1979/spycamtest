@@ -87,6 +87,67 @@ func TestAdminRequiresToken(t *testing.T) {
 	resp.Body.Close()
 }
 
+func TestAuditAndUsage(t *testing.T) {
+	store := newTestStore(t, nil)
+	store.SetAdminToken("adm")
+	srv := httptest.NewServer(store.Handler())
+	defer srv.Close()
+	admin := AdminClient{ServerURL: srv.URL, Token: "adm"}
+	verifier := Client{ServerURL: srv.URL, DeviceID: "dev-7", PinnedPubKey: store.PublicKey()}
+
+	al, err := admin.Issue(IssueRequest{Plan: "pro", Features: []string{FeatureScan}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A verify records a device check-in.
+	if _, err := verifier.VerifyCode(context.Background(), al.Code); err != nil {
+		t.Fatal(err)
+	}
+	list, _ := admin.List()
+	if len(list) != 1 || list[0].DeviceSeen["dev-7"].IsZero() {
+		t.Errorf("expected device check-in recorded: %+v", list)
+	}
+
+	// Audit log has the issue action.
+	entries, err := admin.Audit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundIssue := false
+	for _, e := range entries {
+		if e.Action == "issue" && e.Code == al.Code && e.OK {
+			foundIssue = true
+		}
+	}
+	if !foundIssue {
+		t.Errorf("issue action not in audit log: %+v", entries)
+	}
+
+	// Revoke adds another audit entry.
+	_ = admin.Revoke(al.Code)
+	entries, _ = admin.Audit()
+	if len(entries) < 2 {
+		t.Errorf("expected >=2 audit entries, got %d", len(entries))
+	}
+}
+
+func TestExpiryInClaims(t *testing.T) {
+	store := newTestStore(t, nil)
+	store.SetAdminToken("adm")
+	srv := httptest.NewServer(store.Handler())
+	defer srv.Close()
+	admin := AdminClient{ServerURL: srv.URL, Token: "adm"}
+	al, err := admin.Issue(IssueRequest{Plan: "pro", Features: []string{FeatureScan}, ExpiresDays: 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := Client{ServerURL: srv.URL, DeviceID: "d", PinnedPubKey: store.PublicKey()}
+	claims, _ := c.VerifyCode(context.Background(), al.Code)
+	if claims.Expires.IsZero() {
+		t.Error("expected non-zero expiry in claims")
+	}
+}
+
 func TestIssueValidation(t *testing.T) {
 	store := newTestStore(t, nil)
 	if _, err := store.Issue(IssueRequest{Plan: "", Features: []string{FeatureScan}}); err == nil {

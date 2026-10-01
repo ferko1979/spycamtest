@@ -14,12 +14,13 @@ type Verifier interface {
 
 // CodeStatus is the last outcome for one configured code.
 type CodeStatus struct {
-	Code     string   `json:"code"`
-	Valid    bool     `json:"valid"`
-	Plan     string   `json:"plan,omitempty"`
-	Features []string `json:"features,omitempty"`
-	Reason   string   `json:"reason,omitempty"`
-	Error    string   `json:"error,omitempty"`
+	Code     string    `json:"code"`
+	Valid    bool      `json:"valid"`
+	Plan     string    `json:"plan,omitempty"`
+	Features []string  `json:"features,omitempty"`
+	Reason   string    `json:"reason,omitempty"`
+	Error    string    `json:"error,omitempty"`
+	Expires  time.Time `json:"expires,omitempty"`
 }
 
 // Entitlement is the aggregate result across all configured codes.
@@ -31,6 +32,8 @@ type Entitlement struct {
 	InGrace   bool         `json:"in_grace"`
 	Degraded  bool         `json:"degraded"` // running on base features only
 	LastError string       `json:"last_error,omitempty"`
+	// SoonestExpiry is the nearest expiry among valid codes (zero if none).
+	SoonestExpiry time.Time `json:"soonest_expiry,omitempty"`
 }
 
 // Manager keeps the current entitlement, refreshing it against the server and
@@ -85,6 +88,7 @@ func (m *Manager) Refresh(ctx context.Context) {
 	}
 	var statuses []CodeStatus
 	anyValid := false
+	var soonest time.Time
 
 	for _, code := range codes {
 		if code == "" {
@@ -101,10 +105,14 @@ func (m *Manager) Refresh(ctx context.Context) {
 		st.Plan = claims.Plan
 		st.Features = claims.Features
 		st.Reason = claims.Reason
+		st.Expires = claims.Expires
 		if claims.Valid {
 			anyValid = true
 			for _, f := range claims.Features {
 				union[f] = true
+			}
+			if !claims.Expires.IsZero() && (soonest.IsZero() || claims.Expires.Before(soonest)) {
+				soonest = claims.Expires
 			}
 		}
 		statuses = append(statuses, st)
@@ -123,6 +131,7 @@ func (m *Manager) Refresh(ctx context.Context) {
 		m.ent.LastGood = now
 		m.ent.InGrace = false
 		m.ent.Degraded = !anyValid // degraded only if truly unlicensed
+		m.ent.SoonestExpiry = soonest
 		return
 	}
 

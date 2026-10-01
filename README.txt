@@ -47,7 +47,12 @@ hold several codes and their features are combined.
     license-admin issue -plan pro -features scan,active_scan,cameras -max-devices 3
     license-admin issue -plan business -features all -expires-days 365
     license-admin list
+    license-admin usage           # device check-ins (last-seen) per code
+    license-admin audit           # recent admin actions
     license-admin revoke <CODE>   # also: enable, delete
+  Admin actions are also appended to an audit log file (-audit, JSON lines).
+  Each successful verify records the device's last check-in (usage reporting).
+  The agent warns in its window/dashboard when a license expires within 14 days.
 
 - Client (the agent): verifies ON EACH RUN and every 30 minutes while
   running. Responses are Ed25519-signed; the agent checks the signature, a

@@ -14,12 +14,13 @@ import (
 
 // License is a server-side record for one code.
 type License struct {
-	Plan       string    `json:"plan"`
-	Features   []string  `json:"features"`
-	Expires    time.Time `json:"expires,omitempty"`     // zero = never
-	MaxDevices int       `json:"max_devices,omitempty"` // 0 = unlimited
-	Devices    []string  `json:"devices,omitempty"`     // bound device ids
-	Disabled   bool      `json:"disabled,omitempty"`
+	Plan       string               `json:"plan"`
+	Features   []string             `json:"features"`
+	Expires    time.Time            `json:"expires,omitempty"`     // zero = never
+	MaxDevices int                  `json:"max_devices,omitempty"` // 0 = unlimited
+	Devices    []string             `json:"devices,omitempty"`     // bound device ids
+	Disabled   bool                 `json:"disabled,omitempty"`
+	DeviceSeen map[string]time.Time `json:"device_seen,omitempty"` // device id -> last check-in
 }
 
 // Store holds licenses and the signing key. Safe for concurrent use.
@@ -31,6 +32,16 @@ type Store struct {
 	now        func() time.Time
 	onChange   func(map[string]*License) // optional persistence hook
 	adminToken string
+	audit      []AuditEntry     // in-memory ring of recent admin actions
+	auditHook  func(AuditEntry) // optional sink (e.g. append to a file)
+}
+
+// SetAuditHook registers a sink called for every admin action (e.g. to append
+// to a log file), in addition to the in-memory ring exposed via the API.
+func (s *Store) SetAuditHook(fn func(AuditEntry)) {
+	s.mu.Lock()
+	s.auditHook = fn
+	s.mu.Unlock()
 }
 
 // SetAdminToken enables the admin API. With an empty token (the default) the
@@ -115,6 +126,17 @@ func (s *Store) verify(req VerifyRequest) Claims {
 			if s.onChange != nil {
 				s.onChange(s.licenses)
 			}
+		}
+	}
+
+	// Record the device check-in (usage reporting).
+	if req.DeviceID != "" {
+		if lic.DeviceSeen == nil {
+			lic.DeviceSeen = map[string]time.Time{}
+		}
+		lic.DeviceSeen[req.DeviceID] = now
+		if s.onChange != nil {
+			s.onChange(s.licenses)
 		}
 	}
 

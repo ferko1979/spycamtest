@@ -30,7 +30,7 @@ import (
 // - assets/icon.png
 // - ui/index.html
 //
-//go:embed assets/icon.ico assets/icon.png ui/index.html
+//go:embed assets/icon.ico assets/icon.png ui/index.html ui/dashboard.html
 var assetsFS embed.FS
 
 type Device struct {
@@ -66,6 +66,30 @@ type RemoteConfig struct {
 	// ActiveScanConsent enables the opt-in active TCP sweep of local
 	// subnets. Default false: discovery is passive unless the user opts in.
 	ActiveScanConsent bool `json:"active_scan_consent"`
+
+	// SampleIntervalSec is how often the activity tracker samples the
+	// foreground window (seconds). Default 5 if unset/invalid.
+	SampleIntervalSec int `json:"sample_interval_sec,omitempty"`
+
+	// IdleThresholdSec is how long with no input before samples count as
+	// idle (seconds). Default 180 if unset/invalid.
+	IdleThresholdSec int `json:"idle_threshold_sec,omitempty"`
+}
+
+// SampleInterval returns the configured sampling interval, with a default.
+func (c RemoteConfig) SampleInterval() time.Duration {
+	if c.SampleIntervalSec <= 0 {
+		return 5 * time.Second
+	}
+	return time.Duration(c.SampleIntervalSec) * time.Second
+}
+
+// IdleThreshold returns the configured idle threshold, with a default.
+func (c RemoteConfig) IdleThreshold() time.Duration {
+	if c.IdleThresholdSec <= 0 {
+		return 3 * time.Minute
+	}
+	return time.Duration(c.IdleThresholdSec) * time.Second
 }
 
 func (c RemoteConfig) Origin() string {
@@ -338,13 +362,16 @@ func showUiWindow() {
 	_ = w.Bind("getConnectionConfig", func() map[string]any {
 		cfg := getRemoteConfig()
 		return map[string]any{
-			"host":         cfg.Host,
-			"port":         cfg.Port,
-			"https":        cfg.HTTPS,
-			"scanner_path": cfg.ScannerPath,
-			"origin":       cfg.Origin(),
-			"scanner_url":  cfg.ScannerURL(),
-			"config_path":  mustConfigPath(),
+			"host":                cfg.Host,
+			"port":                cfg.Port,
+			"https":               cfg.HTTPS,
+			"scanner_path":        cfg.ScannerPath,
+			"origin":              cfg.Origin(),
+			"scanner_url":         cfg.ScannerURL(),
+			"config_path":         mustConfigPath(),
+			"sample_interval_sec": int(cfg.SampleInterval() / time.Second),
+			"idle_threshold_sec":  int(cfg.IdleThreshold() / time.Second),
+			"dashboard_url":       fmt.Sprintf("http://%s:%d/dashboard", host, port),
 		}
 	})
 
@@ -423,6 +450,33 @@ func showUiWindow() {
 		_ = saveRemoteConfig(cfg)
 		applyRemoteConfig(cfg)
 		return map[string]any{"active_scan_consent": getRemoteConfig().ActiveScanConsent}
+	})
+
+	// Window-title capability + OS permission remediation.
+	_ = w.Bind("getPermissionStatus", func() map[string]any {
+		ok, detail := permissionStatus()
+		return map[string]any{"ok": ok, "detail": detail}
+	})
+
+	_ = w.Bind("openPermissionSettings", func() {
+		_ = openActivityPermission()
+	})
+
+	// Editable sampling settings (interval + idle threshold).
+	_ = w.Bind("saveActivitySettings", func(intervalSec, idleSec int) (map[string]any, error) {
+		if err := saveActivitySettings(intervalSec, idleSec); err != nil {
+			return nil, err
+		}
+		cfg := getRemoteConfig()
+		return map[string]any{
+			"sample_interval_sec": cfg.SampleIntervalSec,
+			"idle_threshold_sec":  cfg.IdleThresholdSec,
+		}, nil
+	})
+
+	// Open the bundled local scanner dashboard in the browser.
+	_ = w.Bind("openDashboard", func() {
+		_ = openURL(fmt.Sprintf("http://%s:%d/dashboard", host, port))
 	})
 
 	// Live snapshot of the user's own tracked activity, so the monitored

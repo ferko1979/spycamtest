@@ -71,6 +71,19 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
+// TitleCapability reports whether window titles can be read. On Linux this
+// needs the `xprop` tool and an X11 session.
+func TitleCapability() (bool, string) {
+	if _, err := exec.LookPath("xprop"); err != nil {
+		return false, "Install X11 tools (package x11-utils for xprop, and xprintidle for idle time) to capture app/window titles. On Wayland, per-window titles may be unavailable; only time totals are recorded."
+	}
+	return true, ""
+}
+
+// OpenPermissionSettings is a no-op on Linux (no OS permission dialog); the
+// capability message lists the tools to install instead.
+func OpenPermissionSettings() error { return nil }
+
 // linuxIdle reads idle time from `xprintidle` (milliseconds) if available.
 type linuxIdle struct{}
 

@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SpyCam Scanner</title>
+  <style>
+    :root {
+      --bg:#0b0f19; --card:#111827; --border:#1f2937; --muted:#9ca3af;
+      --fg:#e5e7eb; --accent:#60a5fa; --ok:#86efac; --warn:#fcd34d; --cam:#fca5a5;
+    }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin:0; background:var(--bg); color:var(--fg); }
+    header { padding:18px 16px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+    h1 { font-size:18px; margin:0; font-weight:800; }
+    .sub { color:var(--muted); font-size:13px; }
+    main { padding:16px; max-width:980px; margin:0 auto; display:flex; flex-direction:column; gap:16px; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:16px; }
+    .card h2 { font-size:15px; margin:0 0 10px; font-weight:800; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    button { border-radius:10px; padding:9px 13px; font-weight:700; cursor:pointer; border:1px solid var(--border); background:#1f2937; color:var(--fg); }
+    button.primary { background:var(--accent); color:#06264d; border-color:transparent; }
+    button:disabled { opacity:.5; cursor:default; }
+    label.chk { display:flex; align-items:center; gap:8px; color:var(--muted); font-size:13px; cursor:pointer; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--border); vertical-align:top; }
+    th { color:var(--muted); font-weight:600; }
+    .pill { display:inline-block; padding:1px 8px; border-radius:999px; font-size:11px; border:1px solid var(--border); }
+    .pill.cam { color:var(--cam); border-color:#7f1d1d; }
+    .muted { color:var(--muted); font-size:13px; }
+    .bar { height:8px; background:#1f2937; border-radius:6px; overflow:hidden; }
+    .bar > span { display:block; height:100%; background:var(--accent); }
+    .status { font-size:12px; }
+    .status.ok { color:var(--ok); } .status.err { color:var(--cam); }
+    code { color:var(--fg); }
+    .right { margin-left:auto; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>SpyCam Scanner</h1>
+    <span class="sub">local agent dashboard</span>
+    <span id="health" class="status right"></span>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>Network &amp; cameras</h2>
+      <div class="row">
+        <button class="primary" onclick="scan(false)">Scan network</button>
+        <button onclick="scan(true)">Active scan (opt-in)</button>
+        <button onclick="loadCameras()">Find cameras</button>
+        <span id="scanStatus" class="muted"></span>
+      </div>
+      <div id="networks" class="muted" style="margin-top:10px;"></div>
+      <div style="overflow-x:auto;">
+        <table id="devices" style="margin-top:10px;"><thead><tr>
+          <th>IP</th><th>MAC</th><th>Vendor</th><th>Hostname</th><th>Ports</th><th>Camera?</th>
+        </tr></thead><tbody></tbody></table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Activity (work verifier)</h2>
+      <div class="row">
+        <button onclick="loadActivity()">Refresh activity</button>
+        <button onclick="buildReport()">Build report</button>
+        <a href="#" id="dlJson" onclick="return false;"><button>Download JSON</button></a>
+        <a href="#" id="dlCsv" onclick="return false;"><button>Download CSV</button></a>
+        <span id="actStatus" class="muted"></span>
+      </div>
+      <div id="reportSummary" class="muted" style="margin-top:10px;"></div>
+      <div style="overflow-x:auto;">
+        <table id="activity" style="margin-top:10px;"><thead><tr>
+          <th style="width:45%">App / window</th><th>Minutes</th><th style="width:40%">Share</th>
+        </tr></thead><tbody></tbody></table>
+      </div>
+      <div class="muted" style="margin-top:8px;">
+        Tracking is controlled from the desktop agent window (on-device consent).
+        This dashboard only displays what is recorded.
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // AGENT_TOKEN and AGENT_BASE are injected by the agent when it serves
+    // this page (same-origin). Fallbacks allow opening the file directly.
+    const TOKEN = (typeof window.AGENT_TOKEN === 'string') ? window.AGENT_TOKEN : '';
+    const BASE  = (typeof window.AGENT_BASE === 'string' && window.AGENT_BASE) ? window.AGENT_BASE : '';
+
+    function authHeaders() { return TOKEN ? { 'Authorization': 'Bearer ' + TOKEN } : {}; }
+
+    async function api(path) {
+      const res = await fetch(BASE + path, { headers: authHeaders() });
+      if (!res.ok) throw new Error('HTTP ' + res.status + ' for ' + path);
+      return res.json();
+    }
+
+    function setStatus(id, msg, isErr) {
+      const el = document.getElementById(id);
+      el.textContent = msg || '';
+      el.className = 'status ' + (isErr ? 'err' : 'ok');
+    }
+
+    async function health() {
+      try {
+        const h = await api('/health');
+        setStatus('health', '● agent ' + (h.ok ? 'running' : 'down') + ' (' + (h.os || '?') + ')', !h.ok);
+      } catch (e) { setStatus('health', '● agent unreachable', true); }
+    }
+
+    function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+    function renderNetworks(nets) {
+      if (!nets || !nets.length) { document.getElementById('networks').textContent = ''; return; }
+      document.getElementById('networks').innerHTML = nets.map(n =>
+        'Interface <code>' + esc(n.interface) + '</code> — ' + esc(n.ip) + ' (' + esc(n.cidr) + ')' +
+        (n.gateway ? ', gw ' + esc(n.gateway) : '')).join('<br>');
+    }
+
+    function renderDevices(devs) {
+      const tb = document.querySelector('#devices tbody');
+      tb.innerHTML = '';
+      (devs || []).forEach(d => {
+        const tr = document.createElement('tr');
+        const cam = d.likely_camera
+          ? '<span class="pill cam" title="' + esc((d.camera_reasons||[]).join('; ')) + '">likely camera</span>'
+          : '';
+        tr.innerHTML =
+          '<td>' + esc(d.ip) + '</td>' +
+          '<td>' + esc(d.mac) + '</td>' +
+          '<td>' + esc(d.vendor || '') + '</td>' +
+          '<td>' + esc(d.hostname || '') + '</td>' +
+          '<td>' + esc((d.open_ports || []).join(', ')) + '</td>' +
+          '<td>' + cam + '</td>';
+        tb.appendChild(tr);
+      });
+    }
+
+    async function scan(active) {
+      setStatus('scanStatus', active ? 'Active scanning…' : 'Scanning…');
+      try {
+        const data = await api('/scan' + (active ? '?active=1' : ''));
+        renderNetworks(data.networks);
+        renderDevices(data.devices);
+        let note = (data.devices || []).length + ' device(s)';
+        if (active && !data.active) note += ' (active scan is off in settings — passive only)';
+        setStatus('scanStatus', note);
+      } catch (e) { setStatus('scanStatus', e.message, true); }
+    }
+
+    async function loadCameras() {
+      setStatus('scanStatus', 'Finding cameras…');
+      try {
+        const data = await api('/cameras');
+        renderDevices(data.cameras);
+        setStatus('scanStatus', (data.cameras || []).length + ' likely camera(s)');
+      } catch (e) { setStatus('scanStatus', e.message, true); }
+    }
+
+    function fmtMin(sec) { return (sec / 60).toFixed(1); }
+
+    async function loadActivity() {
+      setStatus('actStatus', 'Loading…');
+      try {
+        const data = await api('/activity');
+        const rows = data.usage || [];
+        const total = rows.reduce((a, r) => a + (r.seconds || 0), 0) || 1;
+        const tb = document.querySelector('#activity tbody');
+        tb.innerHTML = '';
+        rows.forEach(r => {
+          const pct = Math.round((r.seconds / total) * 100);
+          const label = esc(r.app || '(unknown)') + (r.title ? ' — ' + esc(r.title) : '');
+          const tr = document.createElement('tr');
+          tr.innerHTML = '<td>' + label + '</td><td>' + fmtMin(r.seconds) +
+            '</td><td><div class="bar"><span style="width:' + pct + '%"></span></div></td>';
+          tb.appendChild(tr);
+        });
+        setStatus('actStatus', data.enabled ? ('tracking on — since ' + esc(data.since)) : 'tracking off (enable in the agent window)');
+      } catch (e) { setStatus('actStatus', e.message, true); }
+    }
+
+    async function buildReport() {
+      setStatus('actStatus', 'Building report…');
+      try {
+        const r = await api('/report');
+        document.getElementById('reportSummary').innerHTML =
+          'Active <b>' + fmtMin(r.active_seconds) + '</b> min, idle <b>' +
+          fmtMin(r.idle_seconds) + '</b> min, over window starting ' + esc(r.window_start) +
+          ' — host <code>' + esc(r.host) + '</code>, user <code>' + esc(r.user) + '</code>.';
+        await loadActivity();
+      } catch (e) { setStatus('actStatus', e.message, true); }
+    }
+
+    // Download links carry the token via header through a fetch+blob so the
+    // browser does not need the token in the URL.
+    async function download(fmt) {
+      try {
+        const res = await fetch(BASE + '/export?format=' + fmt, { headers: authHeaders() });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const blob = await res.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'work-report.' + fmt;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      } catch (e) { setStatus('actStatus', e.message, true); }
+    }
+    document.getElementById('dlJson').addEventListener('click', () => download('json'));
+    document.getElementById('dlCsv').addEventListener('click', () => download('csv'));
+
+    health();
+    scan(false);
+    loadActivity();
+    setInterval(health, 10000);
+  </script>
+</body>
+</html>

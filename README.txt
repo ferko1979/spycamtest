@@ -23,6 +23,26 @@ The token is shown in the agent window so you can paste it into the scanner
 site's settings. (This replaces the former hard-coded password.)
 
 -----------------------------------------------------------------------------
+LOCAL DASHBOARD
+-----------------------------------------------------------------------------
+The agent serves a bundled scanner dashboard at:
+    http://127.0.0.1:8765/            (or /dashboard)
+It is same-origin with the agent, so the token is injected automatically —
+no pasting required. Use it to scan the network, find likely cameras, view
+the activity snapshot, and build/download the work report. Open it from the
+agent window ("Open dashboard") or your browser. The remote scanner site can
+still use the JSON API below with the token.
+
+-----------------------------------------------------------------------------
+SETTINGS (editable in the agent window)
+-----------------------------------------------------------------------------
+- Server address / port / HTTPS (scanner origin + CORS)
+- Activity sampling interval (seconds) and idle threshold (seconds)
+- Consent toggles: activity tracking, active network scanning
+Settings persist in the config file and apply immediately (the tracker is
+reconfigured live).
+
+-----------------------------------------------------------------------------
 AGENT API (127.0.0.1:8765)
 -----------------------------------------------------------------------------
   GET /health                 liveness + feature flags (no auth)

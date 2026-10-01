@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/getlantern/systray"
@@ -46,13 +47,32 @@ var tracker *activity.Tracker
 // initIntegrations constructs and starts the activity tracker. Tracking does
 // not accumulate until consent is given (default off).
 func initIntegrations() {
+	cfg := getRemoteConfig()
 	tracker = activity.New(activity.NewSampler(), activity.Options{
-		Interval:      5 * time.Second,
-		IdleThreshold: 3 * time.Minute,
+		Interval:      cfg.SampleInterval(),
+		IdleThreshold: cfg.IdleThreshold(),
 		Idle:          activity.NewIdle(),
 	})
-	tracker.SetEnabled(getRemoteConfig().ActivityConsent)
+	tracker.SetEnabled(cfg.ActivityConsent)
 	tracker.Start()
+}
+
+// reconfigureTracker rebuilds the tracker with current config timing while
+// preserving consent state and accumulated usage is discarded (a new window
+// begins). Called when the user changes sampling settings.
+func reconfigureTracker() {
+	cfg := getRemoteConfig()
+	if tracker != nil {
+		tracker.Stop()
+	}
+	tracker = activity.New(activity.NewSampler(), activity.Options{
+		Interval:      cfg.SampleInterval(),
+		IdleThreshold: cfg.IdleThreshold(),
+		Idle:          activity.NewIdle(),
+	})
+	tracker.SetEnabled(cfg.ActivityConsent)
+	tracker.Start()
+	updateTrayIndicator()
 }
 
 func stopIntegrations() {
@@ -96,6 +116,34 @@ func setTrackingConsent(enable bool) {
 		tracker.SetEnabled(enable)
 	}
 	updateTrayIndicator()
+}
+
+// permissionStatus reports whether window-title capture is available on this
+// OS, with a human-readable detail/remediation message.
+func permissionStatus() (bool, string) { return activity.TitleCapability() }
+
+// openActivityPermission opens the OS permission settings pane (macOS) or is
+// a no-op where none applies.
+func openActivityPermission() error { return activity.OpenPermissionSettings() }
+
+// saveActivitySettings validates and persists the sampling settings, then
+// reconfigures the running tracker.
+func saveActivitySettings(intervalSec, idleSec int) error {
+	if intervalSec < 1 || intervalSec > 3600 {
+		return fmt.Errorf("sample interval must be between 1 and 3600 seconds")
+	}
+	if idleSec < 10 || idleSec > 86400 {
+		return fmt.Errorf("idle threshold must be between 10 and 86400 seconds")
+	}
+	cfg := getRemoteConfig()
+	cfg.SampleIntervalSec = intervalSec
+	cfg.IdleThresholdSec = idleSec
+	if err := saveRemoteConfig(cfg); err != nil {
+		return err
+	}
+	applyRemoteConfig(cfg)
+	reconfigureTracker()
+	return nil
 }
 
 // authWrap applies bearer-token auth using the current token.
@@ -195,9 +243,35 @@ func buildReport(reset bool) report.Report {
 	return r
 }
 
+// serveDashboard serves the bundled scanner dashboard (same-origin) with the
+// agent token injected, so the page can call the authenticated endpoints
+// without the operator pasting a token or dealing with CORS. Served only on
+// localhost by the agent.
+func serveDashboard(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" && r.URL.Path != "/dashboard" {
+		http.NotFound(w, r)
+		return
+	}
+	b, err := assetsFS.ReadFile("ui/dashboard.html")
+	if err != nil {
+		http.Error(w, "dashboard unavailable", http.StatusInternalServerError)
+		return
+	}
+	tok, _ := json.Marshal(getToken())
+	inject := "<head>\n<script>window.AGENT_TOKEN=" + string(tok) + ";window.AGENT_BASE=\"\";</script>"
+	html := strings.Replace(string(b), "<head>", inject, 1)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(html))
+}
+
 // registerAgentRoutes installs all agent HTTP endpoints on mux. Only /health
-// is unauthenticated (liveness); everything else requires the bearer token.
+// and the localhost dashboard are unauthenticated; the data endpoints
+// require the bearer token.
 func registerAgentRoutes(mux *http.ServeMux) {
+	// Bundled dashboard (localhost, token injected).
+	mux.HandleFunc("/", serveDashboard)
+	mux.HandleFunc("/dashboard", serveDashboard)
+
 	// Liveness — unauthenticated by design.
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		if preflight(w, r) {
@@ -209,10 +283,15 @@ func registerAgentRoutes(mux *http.ServeMux) {
 			"time":     time.Now().Format(time.RFC3339),
 			"origin":   getAllowOrigin(),
 			"site_url": getSiteURL(),
-			"features": map[string]any{
-				"active_scan_enabled": getRemoteConfig().ActiveScanConsent,
-				"activity_enabled":    getRemoteConfig().ActivityConsent,
-			},
+			"features": func() map[string]any {
+				capOK, capMsg := activity.TitleCapability()
+				return map[string]any{
+					"active_scan_enabled":  getRemoteConfig().ActiveScanConsent,
+					"activity_enabled":     getRemoteConfig().ActivityConsent,
+					"title_capture_ok":     capOK,
+					"title_capture_detail": capMsg,
+				}
+			}(),
 		})
 	})
 

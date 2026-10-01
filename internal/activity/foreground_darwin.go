@@ -49,6 +49,22 @@ func (macSampler) Foreground() (Foreground, error) {
 	return fg, nil
 }
 
+// TitleCapability reports whether window titles can be read. On macOS this
+// requires Accessibility permission; we probe by running the frontmost
+// script and treating an error as "permission not granted".
+func TitleCapability() (bool, string) {
+	if _, err := exec.Command("osascript", "-e", frontmostScript).CombinedOutput(); err != nil {
+		return false, "Grant Accessibility permission: System Settings → Privacy & Security → Accessibility, then enable SpyCam Agent. Until then only time totals (not app/title) are recorded."
+	}
+	return true, ""
+}
+
+// OpenPermissionSettings opens the macOS Accessibility settings pane so the
+// user can grant permission.
+func OpenPermissionSettings() error {
+	return exec.Command("open", "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility").Start()
+}
+
 // macIdle reads the HID idle time via `ioreg`. Best-effort; returns 0 if it
 // cannot be determined.
 type macIdle struct{}

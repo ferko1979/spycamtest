@@ -73,6 +73,13 @@ func processName(pid uint32) (string, error) {
 	return filepath.Base(full), nil
 }
 
+// TitleCapability reports whether window titles can be read. On Windows this
+// requires no extra permission.
+func TitleCapability() (bool, string) { return true, "" }
+
+// OpenPermissionSettings is a no-op on Windows (no permission needed).
+func OpenPermissionSettings() error { return nil }
+
 // WinIdle implements IdleReporter via GetLastInputInfo.
 type WinIdle struct{}
 

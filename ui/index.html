@@ -94,10 +94,12 @@
         I consent to activity tracking on this machine (visible while running)
       </label>
 
+      <div id="perm" class="small" style="margin-top:10px;"></div>
+
       <div style="height:10px;"></div>
       <div class="row2">
         <button class="btn secondary" onclick="viewActivity()">View my activity</button>
-        <button class="btn secondary" onclick="exportReport()">Open report (JSON)</button>
+        <button class="btn secondary" onclick="openDashboardPage()">Open dashboard</button>
       </div>
       <div id="activityList" class="small" style="margin-top:10px; white-space:pre-wrap;"></div>
     </div>
@@ -147,6 +149,17 @@
       <div class="field" style="flex-direction:row; align-items:center; gap:10px;">
         <input id="https" type="checkbox" />
         <div class="muted">Use HTTPS</div>
+      </div>
+
+      <div style="height:10px;"></div>
+      <div class="muted" style="font-weight:700;">Activity sampling</div>
+      <div class="field">
+        <div class="muted">Sample interval (seconds)</div>
+        <input id="interval" type="number" min="1" max="3600" placeholder="5" />
+      </div>
+      <div class="field">
+        <div class="muted">Idle threshold (seconds)</div>
+        <input id="idle" type="number" min="10" max="86400" placeholder="180" />
       </div>
 
       <div id="err" class="err"></div>
@@ -229,6 +242,8 @@
         document.getElementById('host').value = (cfg && cfg.host) ? cfg.host : '';
         document.getElementById('port').value = (cfg && cfg.port) ? cfg.port : '';
         document.getElementById('https').checked = !!(cfg && cfg.https);
+        document.getElementById('interval').value = (cfg && cfg.sample_interval_sec) ? cfg.sample_interval_sec : 5;
+        document.getElementById('idle').value = (cfg && cfg.idle_threshold_sec) ? cfg.idle_threshold_sec : 180;
         document.getElementById('cfgPath').textContent = cfg && cfg.config_path ? ('Saved at: ' + cfg.config_path) : '';
       } catch (e) {}
     }
@@ -244,15 +259,40 @@
       const host = document.getElementById('host').value || '';
       const port = parseInt(document.getElementById('port').value || '0', 10);
       const https = !!document.getElementById('https').checked;
+      const interval = parseInt(document.getElementById('interval').value || '5', 10);
+      const idle = parseInt(document.getElementById('idle').value || '180', 10);
 
       try {
         const res = await saveConnectionConfig(host, port, https);
+        await saveActivitySettings(interval, idle);
         showOk('Saved. New server: ' + (res.origin || ''));
         await loadServerInfo();
         setTimeout(closeSettings, 700);
       } catch (e) {
         showErr((e && e.message) ? e.message : String(e || 'Failed'));
       }
+    }
+
+    async function openDashboardPage() {
+      try { await openDashboard(); } catch (e) {}
+    }
+
+    async function loadPermission() {
+      const el = document.getElementById('perm');
+      if (!el) return;
+      try {
+        const p = await getPermissionStatus();
+        if (p && p.ok) {
+          el.innerHTML = '<span style="color:#86efac;">● Window titles can be captured.</span>';
+        } else {
+          el.innerHTML = '<span style="color:#fcd34d;">● ' + ((p && p.detail) || 'Window-title capture needs permission.') +
+            '</span> <a href="#" onclick="grantPermission();return false;" style="color:#60a5fa;">Open settings</a>';
+        }
+      } catch (e) { el.textContent = ''; }
+    }
+
+    async function grantPermission() {
+      try { await openPermissionSettings(); } catch (e) {}
     }
 
     async function loadActivityState() {
@@ -319,9 +359,11 @@
     loadEndpointAndHealth();
     loadServerInfo();
     loadActivityState();
+    loadPermission();
     setInterval(loadEndpointAndHealth, 5000);
     setInterval(loadServerInfo, 5000);
     setInterval(loadActivityState, 5000);
+    setInterval(loadPermission, 8000);
   </script>
 </body>
 </html>

@@ -33,6 +33,7 @@ func main() {
 	addr := flag.String("addr", ":8080", "listen address")
 	licensesPath := flag.String("licenses", "licenses.json", "path to licenses JSON file")
 	keyPath := flag.String("key", "license-key.seed", "path to Ed25519 signing seed (created if missing)")
+	adminToken := flag.String("admin-token", os.Getenv("LICENSE_ADMIN_TOKEN"), "admin API bearer token (or LICENSE_ADMIN_TOKEN env); empty disables the admin API")
 	flag.Parse()
 
 	seed := loadOrCreateSeed(*keyPath)
@@ -41,6 +42,12 @@ func main() {
 	store, err := license.NewStore(licenses, seed)
 	if err != nil {
 		log.Fatalf("store: %v", err)
+	}
+	if *adminToken != "" {
+		store.SetAdminToken(*adminToken)
+		log.Printf("admin API enabled")
+	} else {
+		log.Printf("admin API disabled (set -admin-token or LICENSE_ADMIN_TOKEN to enable)")
 	}
 
 	// Persist device bindings back to disk (debounced by a mutex).

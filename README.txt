@@ -34,9 +34,20 @@ hold several codes and their features are combined.
   verification with an Ed25519 key (generated on first run), and exposes
   POST /api/verify, GET /api/pubkey, GET /healthz. Device bindings and seat
   limits (max_devices) are enforced and persisted.
-    go run ./cmd/license-server -addr :8080 -licenses licenses.json
+    go run ./cmd/license-server -addr :8080 -licenses licenses.json \
+        -admin-token "$LICENSE_ADMIN_TOKEN"
   Copy cmd/license-server/licenses.example.json to licenses.json to start.
-  The log prints the PUBLIC KEY — pin it in clients.
+  The log prints the PUBLIC KEY — pin it in clients. Setting an admin token
+  (flag or LICENSE_ADMIN_TOKEN) enables the admin API; leaving it empty
+  disables admin endpoints.
+
+- Admin CLI: cmd/license-admin issues, revokes and lists codes over the admin
+  API (no hand-editing licenses.json):
+    export LICENSE_SERVER=http://localhost:8080 LICENSE_ADMIN_TOKEN=...
+    license-admin issue -plan pro -features scan,active_scan,cameras -max-devices 3
+    license-admin issue -plan business -features all -expires-days 365
+    license-admin list
+    license-admin revoke <CODE>   # also: enable, delete
 
 - Client (the agent): verifies ON EACH RUN and every 30 minutes while
   running. Responses are Ed25519-signed; the agent checks the signature, a

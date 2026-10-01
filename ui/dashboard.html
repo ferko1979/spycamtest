@@ -72,7 +72,8 @@
       <circle cx="128" cy="128" r="34" fill="url(#ln)"/><circle cx="128" cy="128" r="13" fill="#0b1226"/><circle cx="118" cy="118" r="5" fill="#fff" fill-opacity=".9"/><circle cx="206" cy="104" r="7" fill="#fff"/>
     </svg>
     <div><h1>SpyCam Scanner</h1><div class="sub">local agent dashboard</div></div>
-    <span id="health" class="right status"></span>
+    <span id="license" class="right" style="margin-left:auto;"></span>
+    <span id="health" class="status" style="margin-left:14px;"></span>
   </header>
 
   <main>
@@ -130,6 +131,21 @@
     function fmtMin(sec){return (sec/60).toFixed(1);}
 
     async function health(){ try{const h=await api('/health'); setStatus('health','● agent '+(h.ok?'running':'down')+' ('+(h.os||'?')+')',!h.ok);}catch(e){setStatus('health','● agent unreachable',true);} }
+
+    async function license(){
+      const el=document.getElementById('license'); if(!el) return;
+      try{
+        const info=await api('/license'); const ent=info&&info.entitlement;
+        const feats=(ent&&ent.features)||[];
+        const plans=((ent&&ent.codes)||[]).filter(c=>c.valid).map(c=>c.plan).filter(Boolean);
+        let label=plans.length?plans.join('+'):(feats.length>1?'licensed':'free');
+        let color='var(--c1)';
+        if(ent&&ent.in_grace){label+=' (cached)';color='var(--warn)';}
+        else if(!plans.length){color='var(--muted)';}
+        el.innerHTML='<span class="pill" style="border-color:'+color+';color:'+color+'">'+esc(label)+'</span>'+
+          ' <span class="muted" style="font-size:11.5px;">'+feats.length+' feature(s)</span>';
+      }catch(e){ el.innerHTML='<span class="pill" style="color:var(--muted)">license n/a</span>'; }
+    }
 
     function renderNetworks(nets){
       document.getElementById('kNetworks').textContent=(nets||[]).length;
@@ -206,8 +222,9 @@
     document.getElementById('dlJson').addEventListener('click',()=>download('json'));
     document.getElementById('dlCsv').addEventListener('click',()=>download('csv'));
 
-    health(); scan(false); loadActivity();
+    health(); license(); scan(false); loadActivity();
     setInterval(health,10000);
+    setInterval(license,15000);
   </script>
 </body>
 </html>

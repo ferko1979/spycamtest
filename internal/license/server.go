@@ -24,12 +24,21 @@ type License struct {
 
 // Store holds licenses and the signing key. Safe for concurrent use.
 type Store struct {
-	mu       sync.Mutex
-	licenses map[string]*License
-	priv     ed25519.PrivateKey
-	pubB64   string
-	now      func() time.Time
-	onChange func(map[string]*License) // optional persistence hook
+	mu         sync.Mutex
+	licenses   map[string]*License
+	priv       ed25519.PrivateKey
+	pubB64     string
+	now        func() time.Time
+	onChange   func(map[string]*License) // optional persistence hook
+	adminToken string
+}
+
+// SetAdminToken enables the admin API. With an empty token (the default) the
+// admin endpoints are disabled and respond 403.
+func (s *Store) SetAdminToken(token string) {
+	s.mu.Lock()
+	s.adminToken = token
+	s.mu.Unlock()
 }
 
 // NewStore builds a store from a code->License map and a signing seed.
@@ -166,6 +175,8 @@ func (s *Store) Handler() http.Handler {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	})
+
+	s.registerAdminRoutes(mux)
 
 	return mux
 }

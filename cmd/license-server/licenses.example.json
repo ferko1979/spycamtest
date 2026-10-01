@@ -1,0 +1,17 @@
+{
+  "FREE-0000-0000": {
+    "plan": "free",
+    "features": ["scan"]
+  },
+  "PRO-1234-5678": {
+    "plan": "pro",
+    "features": ["scan", "active_scan", "cameras"],
+    "max_devices": 3
+  },
+  "BIZ-9999-0001": {
+    "plan": "business",
+    "features": ["scan", "active_scan", "cameras", "activity", "alerts", "signing"],
+    "max_devices": 25,
+    "expires": "2027-01-01T00:00:00Z"
+  }
+}

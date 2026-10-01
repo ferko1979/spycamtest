@@ -124,6 +124,7 @@
       <h2>Local agent</h2>
       <div class="kv"><span id="healthDot" class="dot"></span> <span id="health">checking…</span> · endpoint <code id="endpoint">127.0.0.1:8765</code></div>
       <div class="kv">Scanner server <code id="server">spycamera.test</code></div>
+      <div class="kv">Plan <span id="plan" class="status-pill off">unlicensed</span> <span id="planFeat" class="small"></span></div>
       <div class="mt14 row2">
         <button class="btn primary" onclick="openScanner()">Open scanner</button>
         <button class="btn" onclick="openDashboardPage()">Dashboard</button>
@@ -198,6 +199,12 @@
       <div class="field"><div class="small">Webhook URL (Slack/Discord/automation)</div><input id="webhook" type="text" placeholder="https://hooks.example.com/…" /></div>
       <div class="field inline"><input id="alertDevice" type="checkbox" /><div class="small">Alert on new device</div></div>
       <div class="field inline"><input id="alertCamera" type="checkbox" /><div class="small">Alert on new camera</div></div>
+
+      <div class="sectlabel">Licensing</div>
+      <div class="field"><div class="small">License server URL</div><input id="licUrl" type="text" placeholder="https://license.example.com" /></div>
+      <div class="field"><div class="small">License code(s) — one per line</div><textarea id="licCodes" rows="3" style="border-radius:11px;border:1px solid var(--border);padding:10px 12px;background:#0a1120;color:var(--fg);font-size:13px;resize:vertical;"></textarea></div>
+      <div class="field"><div class="small">Pinned server public key (optional, base64)</div><input id="licKey" type="text" placeholder="paste to pin the server identity" /></div>
+      <div id="licStatus" class="small mt"></div>
 
       <div id="err" class="err"></div>
       <div id="ok" class="ok"></div>
@@ -274,6 +281,33 @@
     }
     function closeSettings(){ document.getElementById('settingsModal').classList.remove('show'); }
 
+    function describeEntitlement(info){
+      const ent=info&&info.entitlement;
+      const feats=(ent&&ent.features)||[];
+      const plans=((ent&&ent.codes)||[]).filter(c=>c.valid).map(c=>c.plan).filter(Boolean);
+      return {feats, plans, degraded:ent?ent.degraded:true, grace:ent&&ent.in_grace};
+    }
+    async function loadLicense(){
+      try{
+        if(typeof getLicenseConfig!=='function') return;
+        const info=await getLicenseConfig();
+        const d=describeEntitlement(info);
+        const plan=document.getElementById('plan');
+        const label=d.plans.length?d.plans.join('+'):(d.feats.length>1?'licensed':'free');
+        plan.textContent=label; plan.className='status-pill '+(d.plans.length?'on':'off');
+        document.getElementById('planFeat').textContent=d.feats.length?('· '+d.feats.join(', ')):'';
+        // settings fields
+        const url=document.getElementById('licUrl'); if(url) url.value=info.server_url||'';
+        const codes=document.getElementById('licCodes'); if(codes) codes.value=(info.codes||[]).join('\n');
+        const key=document.getElementById('licKey'); if(key) key.value=info.pinned_key_value||'';
+        const st=document.getElementById('licStatus');
+        if(st){ let msg='Device '+((info.device_id||'').slice(0,8))+'… · '+d.feats.length+' feature(s)';
+          if(d.grace) msg+=' · using cached license (server unreachable)';
+          else if(d.degraded) msg+=' · unlicensed/degraded';
+          st.textContent=msg; }
+      }catch(e){}
+    }
+
     async function saveSettings(){
       showErr(''); showOk('');
       const host=document.getElementById('host').value||'';
@@ -284,21 +318,26 @@
       const webhook=document.getElementById('webhook').value||'';
       const alertDevice=!!document.getElementById('alertDevice').checked;
       const alertCamera=!!document.getElementById('alertCamera').checked;
+      const licUrl=document.getElementById('licUrl').value||'';
+      const licCodes=document.getElementById('licCodes').value||'';
+      const licKey=document.getElementById('licKey').value||'';
       try{
         const res=await saveConnectionConfig(host,port,https);
         await saveActivitySettings(interval,idle);
         await saveAlertSettings(webhook,alertDevice,alertCamera);
+        if(typeof saveLicenseConfig==='function') await saveLicenseConfig(licUrl,licCodes,licKey);
         showOk('Saved. Server: '+(res.origin||''));
-        await loadServerInfo();
+        await loadServerInfo(); await loadLicense();
         setTimeout(closeSettings,700);
       }catch(e){ showErr((e&&e.message)?e.message:String(e||'Failed')); }
     }
 
-    loadStartup(); loadEndpointAndHealth(); loadServerInfo(); loadActivityState(); loadPermission();
+    loadStartup(); loadEndpointAndHealth(); loadServerInfo(); loadActivityState(); loadPermission(); loadLicense();
     setInterval(loadEndpointAndHealth,5000);
     setInterval(loadServerInfo,5000);
     setInterval(loadActivityState,5000);
     setInterval(loadPermission,8000);
+    setInterval(loadLicense,15000);
   </script>
 </body>
 </html>

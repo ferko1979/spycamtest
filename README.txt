@@ -23,6 +23,35 @@ The token is shown in the agent window so you can paste it into the scanner
 site's settings. (This replaces the former hard-coded password.)
 
 -----------------------------------------------------------------------------
+LICENSING (feature entitlement)
+-----------------------------------------------------------------------------
+Services are unlocked by license codes verified against a central server:
+  Features: scan · active_scan · cameras · activity · alerts · signing
+Each code maps (on the server) to a plan + a set of features; a device can
+hold several codes and their features are combined.
+
+- Server: cmd/license-server. It loads codes from licenses.json, signs each
+  verification with an Ed25519 key (generated on first run), and exposes
+  POST /api/verify, GET /api/pubkey, GET /healthz. Device bindings and seat
+  limits (max_devices) are enforced and persisted.
+    go run ./cmd/license-server -addr :8080 -licenses licenses.json
+  Copy cmd/license-server/licenses.example.json to licenses.json to start.
+  The log prints the PUBLIC KEY — pin it in clients.
+
+- Client (the agent): verifies ON EACH RUN and every 30 minutes while
+  running. Responses are Ed25519-signed; the agent checks the signature, a
+  per-request nonce (anti-replay), response freshness, and — if you pin the
+  server public key — that the key matches, so a rogue local server cannot
+  grant features. If the server is briefly unreachable the last-known
+  entitlement is kept for a 24h grace window, then it falls back to the base
+  (free) feature set ("scan"). Set the server URL, code(s) and (optionally)
+  the pinned key in the agent window → Settings → Licensing.
+
+- Gating: unlicensed/locked endpoints return HTTP 402. Passive scan is the
+  free base feature; active scan, cameras, activity/reports, alerts and
+  report signing require entitling codes. GET /license shows current state.
+
+-----------------------------------------------------------------------------
 LOCAL DASHBOARD
 -----------------------------------------------------------------------------
 The agent serves a bundled scanner dashboard at:
@@ -55,6 +84,8 @@ AGENT API (127.0.0.1:8765)
                               (active=1 also RTSP/ONVIF-fingerprints to
                               confirm, adding evidence to each device)
   GET /baseline                known-device count + alert settings
+  GET /license                 current license entitlement + per-code status
+  (gated endpoints return HTTP 402 when the feature is not licensed)
   GET /activity                current activity snapshot (if tracking is on)
   GET /activity/consent?enable=0   opt OUT of tracking (enabling must be done
                               on-device in the agent window; it cannot be

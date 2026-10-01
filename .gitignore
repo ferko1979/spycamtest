@@ -1,0 +1,5 @@
+# License server runtime artifacts
+/license-server
+license-key.seed
+/cmd/license-server/license-key.seed
+/cmd/license-server/licenses.json

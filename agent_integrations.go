@@ -18,6 +18,7 @@ import (
 	"spycam-tray-agent/internal/activity"
 	"spycam-tray-agent/internal/alerts"
 	"spycam-tray-agent/internal/auth"
+	"spycam-tray-agent/internal/license"
 	"spycam-tray-agent/internal/netscan"
 	"spycam-tray-agent/internal/report"
 )
@@ -240,7 +241,7 @@ func discover(active bool) ([]netscan.Device, []netscan.Network, error) {
 	nn := toNetscanNetworks(collectLanNetworks())
 
 	var openPorts map[string][]int
-	if active && getRemoteConfig().ActiveScanConsent {
+	if active && getRemoteConfig().ActiveScanConsent && licensed(license.FeatureActiveScan) {
 		openPorts = map[string][]int{}
 		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 		defer cancel()
@@ -289,7 +290,7 @@ func runAlerts(devs []netscan.Device) []alerts.Event {
 			toSend = append(toSend, e)
 		}
 	}
-	if len(toSend) > 0 && cfg.WebhookURL != "" {
+	if len(toSend) > 0 && cfg.WebhookURL != "" && licensed(license.FeatureAlerts) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := (alerts.Webhook{URL: cfg.WebhookURL}).Send(ctx, toSend); err != nil {
@@ -328,7 +329,7 @@ func buildReport(reset bool) report.Report {
 		usage, since = tracker.Snapshot()
 	}
 	r := report.Build(usage, since, time.Now(), reportMeta())
-	if seed := getRemoteConfig().SigningSeed; seed != "" {
+	if seed := getRemoteConfig().SigningSeed; seed != "" && licensed(license.FeatureSigning) {
 		if err := r.Sign(seed); err != nil {
 			logf("report signing failed: %v", err)
 		}
@@ -404,7 +405,7 @@ func registerAgentRoutes(mux *http.ServeMux) {
 
 	// Enriched device scan. ?active=1 additionally runs an opt-in TCP sweep
 	// (only effective if active scanning is enabled in config).
-	mux.HandleFunc("/scan", authWrap(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/scan", gated(license.FeatureScan, func(w http.ResponseWriter, r *http.Request) {
 		if preflight(w, r) {
 			return
 		}
@@ -429,7 +430,7 @@ func registerAgentRoutes(mux *http.ServeMux) {
 	}))
 
 	// Camera-focused view: enriched scan filtered to likely cameras.
-	mux.HandleFunc("/cameras", authWrap(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/cameras", gated(license.FeatureCameras, func(w http.ResponseWriter, r *http.Request) {
 		if preflight(w, r) {
 			return
 		}
@@ -466,7 +467,7 @@ func registerAgentRoutes(mux *http.ServeMux) {
 	}))
 
 	// Current activity snapshot (disclosed tracking).
-	mux.HandleFunc("/activity", authWrap(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/activity", gated(license.FeatureActivity, func(w http.ResponseWriter, r *http.Request) {
 		if preflight(w, r) {
 			return
 		}
@@ -486,7 +487,7 @@ func registerAgentRoutes(mux *http.ServeMux) {
 	// Consent control. Disabling (opt-out) is allowed remotely; enabling is
 	// NOT, because turning on monitoring must be an on-device, user-visible
 	// action — never silently flipped on by the remote site.
-	mux.HandleFunc("/activity/consent", authWrap(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/activity/consent", gated(license.FeatureActivity, func(w http.ResponseWriter, r *http.Request) {
 		if preflight(w, r) {
 			return
 		}
@@ -500,7 +501,7 @@ func registerAgentRoutes(mux *http.ServeMux) {
 	}))
 
 	// Build a work-verifier report. ?reset=1 clears the window after.
-	mux.HandleFunc("/report", authWrap(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/report", gated(license.FeatureActivity, func(w http.ResponseWriter, r *http.Request) {
 		if preflight(w, r) {
 			return
 		}
@@ -520,7 +521,7 @@ func registerAgentRoutes(mux *http.ServeMux) {
 		_, _ = w.Write(b)
 	}))
 
-	mux.HandleFunc("/report/history", authWrap(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/report/history", gated(license.FeatureActivity, func(w http.ResponseWriter, r *http.Request) {
 		if preflight(w, r) {
 			return
 		}
@@ -537,7 +538,7 @@ func registerAgentRoutes(mux *http.ServeMux) {
 	}))
 
 	// Export current report as csv or json (download).
-	mux.HandleFunc("/export", authWrap(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/export", gated(license.FeatureActivity, func(w http.ResponseWriter, r *http.Request) {
 		if preflight(w, r) {
 			return
 		}
@@ -559,6 +560,14 @@ func registerAgentRoutes(mux *http.ServeMux) {
 			w.Header().Set("Content-Disposition", "attachment; filename=\"work-report.json\"")
 			_, _ = w.Write(b)
 		}
+	}))
+
+	// Current license entitlement (features, per-code status, grace/degraded).
+	mux.HandleFunc("/license", authWrap(func(w http.ResponseWriter, r *http.Request) {
+		if preflight(w, r) {
+			return
+		}
+		writeJSON(w, licenseInfo())
 	}))
 }
 

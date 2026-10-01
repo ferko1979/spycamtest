@@ -86,6 +86,14 @@ type RemoteConfig struct {
 	// SigningSeed is the base64 Ed25519 seed used to sign work reports.
 	// Generated on first run (see ensureSigningSeed).
 	SigningSeed string `json:"signing_seed,omitempty"`
+
+	// Licensing: the central server, the license codes entered by the user,
+	// the pinned server public key (base64), and a stable per-install device
+	// id. Features/services are unlocked according to the verified codes.
+	LicenseServerURL string   `json:"license_server_url,omitempty"`
+	LicenseCodes     []string `json:"license_codes,omitempty"`
+	LicensePublicKey string   `json:"license_public_key,omitempty"`
+	DeviceID         string   `json:"device_id,omitempty"`
 }
 
 // SampleInterval returns the configured sampling interval, with a default.
@@ -187,6 +195,7 @@ func main() {
 	applyRemoteConfig(cfg)
 	ensureToken()
 	ensureSigningSeed()
+	initLicensing()
 
 	systray.Run(onReady, onExit)
 }
@@ -503,6 +512,27 @@ func showUiWindow() {
 	// Open the bundled local scanner dashboard in the browser.
 	_ = w.Bind("openDashboard", func() {
 		_ = openURL(fmt.Sprintf("http://%s:%d/dashboard", host, port))
+	})
+
+	// Licensing: read current config + entitlement, and save new settings.
+	_ = w.Bind("getLicenseConfig", func() map[string]any {
+		cfg := getRemoteConfig()
+		info := licenseInfo()
+		info["server_url"] = cfg.LicenseServerURL
+		info["codes"] = cfg.LicenseCodes
+		info["pinned_key_value"] = cfg.LicensePublicKey
+		return info
+	})
+
+	_ = w.Bind("saveLicenseConfig", func(serverURL, codesText, pinnedKey string) map[string]any {
+		var codes []string
+		for _, part := range strings.FieldsFunc(codesText, func(r rune) bool {
+			return r == '\n' || r == ',' || r == ';' || r == ' ' || r == '\t' || r == '\r'
+		}) {
+			codes = append(codes, part)
+		}
+		setLicenseConfig(serverURL, codes, pinnedKey)
+		return licenseInfo()
 	})
 
 	// Live snapshot of the user's own tracked activity, so the monitored

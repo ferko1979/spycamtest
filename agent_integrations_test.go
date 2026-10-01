@@ -1,14 +1,41 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"spycam-tray-agent/internal/license"
 	"spycam-tray-agent/internal/report"
 )
+
+// allFeatVerifier grants every feature for any code.
+type allFeatVerifier struct{ valid bool }
+
+func (a allFeatVerifier) VerifyCode(_ context.Context, code string) (license.Claims, error) {
+	if !a.valid {
+		return license.Claims{Code: code, Valid: false, Reason: "test"}, nil
+	}
+	return license.Claims{Code: code, Valid: true, Plan: "test", Features: license.AllFeatures(), IssuedAt: time.Now()}, nil
+}
+
+// grantAllFeatures installs a manager entitling every feature.
+func grantAllFeatures() {
+	licMgr = license.NewManager(allFeatVerifier{valid: true}, []string{license.FeatureScan}, time.Hour)
+	licMgr.SetCodes([]string{"TEST"})
+	licMgr.Refresh(context.Background())
+}
+
+// grantBaseOnly installs a manager with no valid codes (base features only).
+func grantBaseOnly() {
+	licMgr = license.NewManager(allFeatVerifier{valid: false}, []string{license.FeatureScan}, time.Hour)
+	licMgr.SetCodes([]string{"TEST"})
+	licMgr.Refresh(context.Background())
+}
 
 // setupTestServer wires the real agent routes with a known token.
 func setupTestServer(t *testing.T) (*httptest.Server, string) {
@@ -17,6 +44,7 @@ func setupTestServer(t *testing.T) (*httptest.Server, string) {
 	applyRemoteConfig(RemoteConfig{
 		Host: "example.test", Port: 80, ScannerPath: "/scanner", Token: tok,
 	})
+	grantAllFeatures()
 	mux := http.NewServeMux()
 	registerAgentRoutes(mux)
 	srv := httptest.NewServer(mux)
@@ -67,6 +95,36 @@ func TestActivityConsentCannotEnableRemotely(t *testing.T) {
 	res := get(t, srv.URL+"/activity/consent?enable=1", tok)
 	if res.StatusCode != 403 {
 		t.Errorf("remote enable = %d, want 403 (on-device only)", res.StatusCode)
+	}
+	res.Body.Close()
+}
+
+func TestFeatureGating(t *testing.T) {
+	srv, tok := setupTestServer(t) // grants all features
+	// Downgrade to base-only (unlicensed).
+	grantBaseOnly()
+
+	// Base feature still works.
+	res := get(t, srv.URL+"/scan", tok)
+	if res.StatusCode != 200 {
+		t.Errorf("/scan (base) = %d, want 200", res.StatusCode)
+	}
+	res.Body.Close()
+
+	// Gated features are 402 Payment Required.
+	for _, p := range []string{"/cameras", "/activity", "/report"} {
+		res := get(t, srv.URL+p, tok)
+		if res.StatusCode != http.StatusPaymentRequired {
+			t.Errorf("%s unlicensed = %d, want 402", p, res.StatusCode)
+		}
+		res.Body.Close()
+	}
+
+	// Re-grant: now allowed.
+	grantAllFeatures()
+	res = get(t, srv.URL+"/cameras", tok)
+	if res.StatusCode != 200 {
+		t.Errorf("/cameras licensed = %d, want 200", res.StatusCode)
 	}
 	res.Body.Close()
 }

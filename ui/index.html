@@ -74,6 +74,56 @@
         <button class="btn secondary" onclick="quitApp()">Quit</button>
       </div>
     </div>
+
+    <div style="height:14px;"></div>
+
+    <!-- Disclosed activity tracking -->
+    <div class="card">
+      <div style="font-size:15px; font-weight:800;">Activity tracking (work verifier)</div>
+      <div class="muted" style="margin-top:6px;">
+        When ON, this records the <b>active application</b>, its <b>window title</b>,
+        and <b>time spent</b> — so a work-activity report can be produced. It does
+        <b>not</b> capture keystrokes, screen contents, clipboard, or passwords.
+        While it runs, the tray shows <b>“Activity tracking ON”</b>. You can turn it
+        off here or from the tray at any time, and view exactly what is recorded.
+      </div>
+
+      <div style="height:12px;"></div>
+      <label class="muted">
+        <input id="track" type="checkbox" onchange="onTrackToggle()">
+        I consent to activity tracking on this machine (visible while running)
+      </label>
+
+      <div style="height:10px;"></div>
+      <div class="row2">
+        <button class="btn secondary" onclick="viewActivity()">View my activity</button>
+        <button class="btn secondary" onclick="exportReport()">Open report (JSON)</button>
+      </div>
+      <div id="activityList" class="small" style="margin-top:10px; white-space:pre-wrap;"></div>
+    </div>
+
+    <div style="height:14px;"></div>
+
+    <!-- Network / camera scan controls -->
+    <div class="card">
+      <div style="font-size:15px; font-weight:800;">Network &amp; camera scan</div>
+      <div class="muted" style="margin-top:6px;">
+        Passive discovery reads your device's ARP/neighbor table. Active discovery
+        (optional) sends TCP connection probes across your own subnet to find
+        devices — including likely cameras — that are not yet in the table.
+      </div>
+      <div style="height:12px;"></div>
+      <label class="muted">
+        <input id="activeScan" type="checkbox" onchange="onActiveScanToggle()">
+        Enable active scanning of my own network (sends packets)
+      </label>
+
+      <div style="height:12px;"></div>
+      <div class="muted">Agent API token (configure this in the scanner site):</div>
+      <div class="field">
+        <input id="token" type="text" readonly onclick="this.select()" />
+      </div>
+    </div>
   </div>
 
   <!-- Settings Modal -->
@@ -82,11 +132,6 @@
       <div style="font-size:16px; font-weight:800;">Scanner connection</div>
       <div class="muted" style="margin-top:6px;">
         Change the server address and port used for the scanner website & CORS origin.
-      </div>
-
-      <div class="field">
-        <div class="muted">Admin password</div>
-        <input id="pw" type="password" placeholder="Enter password to unlock" />
       </div>
 
       <div class="field">
@@ -177,7 +222,6 @@
     async function openSettings() {
       showErr('');
       showOk('');
-      document.getElementById('pw').value = '';
       document.getElementById('settingsModal').classList.add('show');
 
       try {
@@ -197,13 +241,12 @@
       showErr('');
       showOk('');
 
-      const pw = document.getElementById('pw').value || '';
       const host = document.getElementById('host').value || '';
       const port = parseInt(document.getElementById('port').value || '0', 10);
       const https = !!document.getElementById('https').checked;
 
       try {
-        const res = await saveConnectionConfig(pw, host, port, https);
+        const res = await saveConnectionConfig(host, port, https);
         showOk('Saved. New server: ' + (res.origin || ''));
         await loadServerInfo();
         setTimeout(closeSettings, 700);
@@ -212,11 +255,73 @@
       }
     }
 
+    async function loadActivityState() {
+      try {
+        if (typeof getActivityState === 'function') {
+          const s = await getActivityState();
+          if (s) {
+            document.getElementById('track').checked = !!s.consent;
+            document.getElementById('activeScan').checked = !!s.active_scan_consent;
+          }
+        }
+      } catch (e) {}
+      try {
+        if (typeof getAgentToken === 'function') {
+          const t = await getAgentToken();
+          if (t) document.getElementById('token').value = t;
+        }
+      } catch (e) {}
+    }
+
+    async function onTrackToggle() {
+      const on = document.getElementById('track').checked;
+      try { await setActivityConsent(on); } catch (e) {}
+      if (!on) document.getElementById('activityList').textContent = '';
+    }
+
+    async function onActiveScanToggle() {
+      const on = document.getElementById('activeScan').checked;
+      try { await setActiveScanConsent(on); } catch (e) {}
+    }
+
+    async function viewActivity() {
+      try {
+        const rows = await getMyActivity();
+        if (!rows || !rows.length) {
+          document.getElementById('activityList').textContent =
+            'No activity recorded yet (tracking off, or nothing sampled).';
+          return;
+        }
+        const lines = rows.slice(0, 15).map(r => {
+          const mins = (r.seconds / 60).toFixed(1);
+          const app = r.app || '(unknown)';
+          const title = r.title ? (' — ' + r.title) : '';
+          return mins + ' min  ' + app + title;
+        });
+        document.getElementById('activityList').textContent = lines.join('\n');
+      } catch (e) {
+        document.getElementById('activityList').textContent = 'Could not read activity.';
+      }
+    }
+
+    async function exportReport() {
+      try {
+        const base = await agentEndpoint();
+        const tok = await getAgentToken();
+        // Open the report endpoint in the browser with the token.
+        if (typeof openScanner === 'function') {}
+        alert('Report endpoint: ' + base + '/export?format=json\n' +
+              'Send header "Authorization: Bearer <token>" — the token is shown in the window.');
+      } catch (e) {}
+    }
+
     loadStartup();
     loadEndpointAndHealth();
     loadServerInfo();
+    loadActivityState();
     setInterval(loadEndpointAndHealth, 5000);
     setInterval(loadServerInfo, 5000);
+    setInterval(loadActivityState, 5000);
   </script>
 </body>
 </html>

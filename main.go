@@ -33,9 +33,6 @@ import (
 //go:embed assets/icon.ico assets/icon.png ui/index.html
 var assetsFS embed.FS
 
-// Hard-coded admin password (as requested)
-const adminPassword = "M3t6lqu0"
-
 type Device struct {
 	IP       string `json:"ip"`
 	MAC      string `json:"mac"`
@@ -55,6 +52,20 @@ type RemoteConfig struct {
 	Port        int    `json:"port"`
 	HTTPS       bool   `json:"https"`
 	ScannerPath string `json:"scanner_path"`
+
+	// Token is the bearer token required by the local agent API. It is
+	// generated on first run (see ensureToken) and replaces the former
+	// hard-coded admin password.
+	Token string `json:"token,omitempty"`
+
+	// ActivityConsent records that the user has consented to the disclosed
+	// activity tracker (app/window-title/time). Default false: nothing is
+	// tracked until the user turns it on in the agent window.
+	ActivityConsent bool `json:"activity_consent"`
+
+	// ActiveScanConsent enables the opt-in active TCP sweep of local
+	// subnets. Default false: discovery is passive unless the user opts in.
+	ActiveScanConsent bool `json:"active_scan_consent"`
 }
 
 func (c RemoteConfig) Origin() string {
@@ -138,6 +149,7 @@ func main() {
 	// Load persisted remote config (or derive defaults from flags)
 	cfg := loadRemoteConfigOrDefault(defaultRemoteFromFlags(allowOriginFlag, siteURLFlag))
 	applyRemoteConfig(cfg)
+	ensureToken()
 
 	systray.Run(onReady, onExit)
 }
@@ -163,10 +175,11 @@ func onReady() {
 	systray.SetTitle("SpyCam Agent")
 	systray.SetTooltip("SpyCam Agent running locally for network scan")
 
-	// Start local API
+	// Start local API and the (consent-gated) activity tracker.
 	if err := startAgent(); err != nil {
 		logf("Failed to start agent: %v", err)
 	}
+	initIntegrations()
 
 	// Menu items
 	mOpenUI := systray.AddMenuItem("Open Agent Window", "Open the SpyCam Agent control window")
@@ -177,6 +190,11 @@ func onReady() {
 
 	systray.AddSeparator()
 
+	// Visible, on-device control for activity tracking. Its checked state
+	// mirrors consent, and the tray title also shows ON/OFF, so the person
+	// on this machine can always see and stop tracking.
+	mTracking := systray.AddMenuItemCheckbox("Activity tracking (app/title/time)", "Disclosed work-activity tracking. Visible while running; you can turn it off here.", getRemoteConfig().ActivityConsent)
+
 	startupMenu = systray.AddMenuItemCheckbox("Run on startup", "Start SpyCam Agent when you log in", false)
 	enabled, _ := startupIsEnabled()
 	if enabled {
@@ -184,6 +202,9 @@ func onReady() {
 	} else {
 		startupMenu.Uncheck()
 	}
+
+	// Reflect current tracking state in the tray title/tooltip.
+	updateTrayIndicator()
 
 	mQuit := systray.AddMenuItem("Quit", "Stop agent and exit")
 
@@ -195,6 +216,16 @@ func onReady() {
 
 			case <-mOpen.ClickedCh:
 				_ = openURL(getSiteURL())
+
+			case <-mTracking.ClickedCh:
+				// Toggle disclosed activity tracking from the tray.
+				if mTracking.Checked() {
+					setTrackingConsent(false)
+					mTracking.Uncheck()
+				} else {
+					setTrackingConsent(true)
+					mTracking.Check()
+				}
 
 			case <-startupMenu.ClickedCh:
 				if startupMenu.Checked() {
@@ -214,6 +245,7 @@ func onReady() {
 }
 
 func onExit() {
+	stopIntegrations()
 	_ = stopAgent()
 }
 
@@ -316,11 +348,7 @@ func showUiWindow() {
 		}
 	})
 
-	_ = w.Bind("saveConnectionConfig", func(password, newHost string, newPort int, https bool) (map[string]any, error) {
-		if password != adminPassword {
-			return nil, errors.New("invalid password")
-		}
-
+	_ = w.Bind("saveConnectionConfig", func(newHost string, newPort int, https bool) (map[string]any, error) {
 		newHost = strings.TrimSpace(newHost)
 		if newHost == "" {
 			return nil, errors.New("host/address is required")
@@ -361,6 +389,58 @@ func showUiWindow() {
 			"scanner_url": cfg.ScannerURL(),
 		}, nil
 	})
+
+	// Agent API token, so the operator can configure the scanner site.
+	_ = w.Bind("getAgentToken", func() string {
+		return getToken()
+	})
+
+	// Current activity-tracking state for the window UI.
+	_ = w.Bind("getActivityState", func() map[string]any {
+		var count int
+		if tracker != nil {
+			us, _ := tracker.Snapshot()
+			count = len(us)
+		}
+		return map[string]any{
+			"consent":             getRemoteConfig().ActivityConsent,
+			"active_scan_consent": getRemoteConfig().ActiveScanConsent,
+			"entries":             count,
+		}
+	})
+
+	// Consent toggle for activity tracking. This is the on-device, informed
+	// consent action; it flips the visible tray indicator too.
+	_ = w.Bind("setActivityConsent", func(enable bool) map[string]any {
+		setTrackingConsent(enable)
+		return map[string]any{"consent": getRemoteConfig().ActivityConsent}
+	})
+
+	// Opt-in toggle for the active (packet-sending) network sweep.
+	_ = w.Bind("setActiveScanConsent", func(enable bool) map[string]any {
+		cfg := getRemoteConfig()
+		cfg.ActiveScanConsent = enable
+		_ = saveRemoteConfig(cfg)
+		applyRemoteConfig(cfg)
+		return map[string]any{"active_scan_consent": getRemoteConfig().ActiveScanConsent}
+	})
+
+	// Live snapshot of the user's own tracked activity, so the monitored
+	// person can see exactly what is recorded about them.
+	_ = w.Bind("getMyActivity", func() []map[string]any {
+		out := []map[string]any{}
+		if tracker != nil {
+			us, _ := tracker.Snapshot()
+			for _, u := range us {
+				out = append(out, map[string]any{
+					"app":     u.App,
+					"title":   u.Title,
+					"seconds": u.Seconds,
+				})
+			}
+		}
+		return out
+	})
 	// --- end bindings ---
 
 	w.SetHtml(html)
@@ -372,59 +452,10 @@ func startAgent() error {
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		cors(w, getAllowOrigin())
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"ok":       true,
-			"os":       runtime.GOOS,
-			"time":     time.Now().Format(time.RFC3339),
-			"origin":   getAllowOrigin(),
-			"site_url": getSiteURL(),
-		})
-	})
-
-	// NEW: network details only
-	mux.HandleFunc("/networks", func(w http.ResponseWriter, r *http.Request) {
-		cors(w, getAllowOrigin())
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		nets := collectLanNetworks()
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"networks": nets,
-			"os":       runtime.GOOS,
-			"at":       time.Now().Format(time.RFC3339),
-		})
-	})
-
-	// Updated: includes both devices + networks
-	mux.HandleFunc("/scan", func(w http.ResponseWriter, r *http.Request) {
-		cors(w, getAllowOrigin())
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		devs, err := scanNeighbors()
-		if err != nil {
-			http.Error(w, err.Error(), 500)
-			return
-		}
-		nets := collectLanNetworks()
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"devices":   devs,
-			"networks":  nets,
-			"os":        runtime.GOOS,
-			"at":        time.Now().Format(time.RFC3339),
-			"site_url":  getSiteURL(),
-			"origin":    getAllowOrigin(),
-			"agent_url": fmt.Sprintf("http://%s:%d", host, port),
-		})
-	})
+	// All agent endpoints (health, networks, enriched scan, cameras,
+	// activity, report, export) are registered here. Everything but /health
+	// is behind bearer-token auth. See agent_integrations.go.
+	registerAgentRoutes(mux)
 
 	var err error
 	listener, err = net.Listen("tcp", addr)
@@ -457,9 +488,10 @@ func stopAgent() error {
 
 func cors(w http.ResponseWriter, allowOrigin string) {
 	w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
-	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	// Authorization / X-Agent-Token are needed so the scanner site can send
+	// the agent's bearer token on cross-origin requests.
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Agent-Token")
 }
 
 func openURL(url string) error {

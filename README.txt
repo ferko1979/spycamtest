@@ -218,3 +218,11 @@ Then: go mod tidy && go build .
 
 Run tests (no GUI needed):
   go test ./...
+
+-----------------------------------------------------------------------------
+MOBILE (iOS + Android)
+-----------------------------------------------------------------------------
+A Flutter app in mobile/ mirrors the scanner + licensing on phones (active
+Wi-Fi camera scan, license verification against the same server, and
+disclosed Android usage reporting). See mobile/README.md. It is not built in
+this repo's CI (no Flutter SDK here); build it with the Flutter toolchain.

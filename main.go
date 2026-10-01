@@ -74,6 +74,18 @@ type RemoteConfig struct {
 	// IdleThresholdSec is how long with no input before samples count as
 	// idle (seconds). Default 180 if unset/invalid.
 	IdleThresholdSec int `json:"idle_threshold_sec,omitempty"`
+
+	// WebhookURL receives new-device / new-camera alert events as JSON.
+	// Empty disables webhook delivery.
+	WebhookURL string `json:"webhook_url,omitempty"`
+
+	// AlertNewDevice / AlertNewCamera gate which alert kinds are sent.
+	AlertNewDevice bool `json:"alert_new_device,omitempty"`
+	AlertNewCamera bool `json:"alert_new_camera,omitempty"`
+
+	// SigningSeed is the base64 Ed25519 seed used to sign work reports.
+	// Generated on first run (see ensureSigningSeed).
+	SigningSeed string `json:"signing_seed,omitempty"`
 }
 
 // SampleInterval returns the configured sampling interval, with a default.
@@ -174,6 +186,7 @@ func main() {
 	cfg := loadRemoteConfigOrDefault(defaultRemoteFromFlags(allowOriginFlag, siteURLFlag))
 	applyRemoteConfig(cfg)
 	ensureToken()
+	ensureSigningSeed()
 
 	systray.Run(onReady, onExit)
 }
@@ -372,6 +385,19 @@ func showUiWindow() {
 			"sample_interval_sec": int(cfg.SampleInterval() / time.Second),
 			"idle_threshold_sec":  int(cfg.IdleThreshold() / time.Second),
 			"dashboard_url":       fmt.Sprintf("http://%s:%d/dashboard", host, port),
+			"webhook_url":         cfg.WebhookURL,
+			"alert_new_device":    cfg.AlertNewDevice,
+			"alert_new_camera":    cfg.AlertNewCamera,
+		}
+	})
+
+	_ = w.Bind("saveAlertSettings", func(webhookURL string, newDevice, newCamera bool) map[string]any {
+		saveAlertSettings(webhookURL, newDevice, newCamera)
+		cfg := getRemoteConfig()
+		return map[string]any{
+			"webhook_url":      cfg.WebhookURL,
+			"alert_new_device": cfg.AlertNewDevice,
+			"alert_new_camera": cfg.AlertNewCamera,
 		}
 	})
 

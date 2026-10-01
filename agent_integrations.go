@@ -16,10 +16,14 @@ import (
 	"github.com/getlantern/systray"
 
 	"spycam-tray-agent/internal/activity"
+	"spycam-tray-agent/internal/alerts"
 	"spycam-tray-agent/internal/auth"
 	"spycam-tray-agent/internal/netscan"
 	"spycam-tray-agent/internal/report"
 )
+
+// baseline tracks known devices for new-device/new-camera alerts.
+var baseline *alerts.Baseline
 
 func osName() string { return runtime.GOOS }
 
@@ -55,6 +59,9 @@ func initIntegrations() {
 	})
 	tracker.SetEnabled(cfg.ActivityConsent)
 	tracker.Start()
+
+	baseline = &alerts.Baseline{Path: baselinePath()}
+	baseline.Load()
 }
 
 // reconfigureTracker rebuilds the tracker with current config timing while
@@ -103,6 +110,33 @@ func getToken() string {
 	return getRemoteConfig().Token
 }
 
+// ensureSigningSeed generates and persists an Ed25519 signing seed if none
+// exists, so work reports can be signed (tamper-evident).
+func ensureSigningSeed() {
+	cfg := getRemoteConfig()
+	if cfg.SigningSeed != "" {
+		return
+	}
+	seed, err := report.GenerateSeed()
+	if err != nil {
+		logf("signing seed generation failed: %v", err)
+		return
+	}
+	cfg.SigningSeed = seed
+	if err := saveRemoteConfig(cfg); err != nil {
+		logf("signing seed save failed: %v", err)
+	}
+	applyRemoteConfig(cfg)
+}
+
+func baselinePath() string {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, "SpyCam", "device-baseline.json")
+}
+
 // setTrackingConsent records the user's consent decision, flips the tracker,
 // persists it, and updates the visible tray indicator. Enabling is only ever
 // triggered by an on-device action (the agent window or tray menu), never
@@ -144,6 +178,16 @@ func saveActivitySettings(intervalSec, idleSec int) error {
 	applyRemoteConfig(cfg)
 	reconfigureTracker()
 	return nil
+}
+
+// saveAlertSettings persists the webhook URL and alert toggles.
+func saveAlertSettings(webhookURL string, newDevice, newCamera bool) {
+	cfg := getRemoteConfig()
+	cfg.WebhookURL = strings.TrimSpace(webhookURL)
+	cfg.AlertNewDevice = newDevice
+	cfg.AlertNewCamera = newCamera
+	_ = saveRemoteConfig(cfg)
+	applyRemoteConfig(cfg)
 }
 
 // authWrap applies bearer-token auth using the current token.
@@ -208,7 +252,54 @@ func discover(active bool) ([]netscan.Device, []netscan.Network, error) {
 	}
 
 	netscan.Enrich(nd, openPorts, nil)
+
+	// Active fingerprinting (RTSP/ONVIF) confirms cameras; only when the
+	// active sweep ran (which itself requires consent).
+	if openPorts != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		netscan.ApplyFingerprints(ctx, nd, 1200*time.Millisecond)
+	}
 	return nd, nn, nil
+}
+
+// runAlerts diffs the devices against the baseline, delivers any new-device /
+// new-camera events to the configured webhook (respecting the per-kind
+// toggles), updates the baseline, and returns the events. Safe to call with
+// a nil baseline.
+func runAlerts(devs []netscan.Device) []alerts.Event {
+	if baseline == nil {
+		return nil
+	}
+	obs := make([]alerts.Observed, 0, len(devs))
+	for _, d := range devs {
+		obs = append(obs, alerts.Observed{
+			IP: d.IP, MAC: d.MAC, Vendor: d.Vendor, Hostname: d.Hostname, Camera: d.LikelyCamera,
+		})
+	}
+	events := baseline.Diff(obs)
+
+	cfg := getRemoteConfig()
+	var toSend []alerts.Event
+	for _, e := range events {
+		if e.Kind == "new_device" && cfg.AlertNewDevice {
+			toSend = append(toSend, e)
+		}
+		if e.Kind == "new_camera" && cfg.AlertNewCamera {
+			toSend = append(toSend, e)
+		}
+	}
+	if len(toSend) > 0 && cfg.WebhookURL != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := (alerts.Webhook{URL: cfg.WebhookURL}).Send(ctx, toSend); err != nil {
+			logf("webhook send failed: %v", err)
+		}
+	}
+	if err := baseline.Update(obs); err != nil {
+		logf("baseline update failed: %v", err)
+	}
+	return events
 }
 
 func reportMeta() report.Meta {
@@ -237,6 +328,11 @@ func buildReport(reset bool) report.Report {
 		usage, since = tracker.Snapshot()
 	}
 	r := report.Build(usage, since, time.Now(), reportMeta())
+	if seed := getRemoteConfig().SigningSeed; seed != "" {
+		if err := r.Sign(seed); err != nil {
+			logf("report signing failed: %v", err)
+		}
+	}
 	if reset && tracker != nil {
 		tracker.Reset()
 	}
@@ -318,12 +414,14 @@ func registerAgentRoutes(mux *http.ServeMux) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		events := runAlerts(devs)
 		writeJSON(w, map[string]any{
 			"devices":   devs,
 			"networks":  nets,
 			"os":        osName(),
 			"at":        time.Now().Format(time.RFC3339),
 			"active":    active && getRemoteConfig().ActiveScanConsent,
+			"alerts":    events,
 			"site_url":  getSiteURL(),
 			"origin":    getAllowOrigin(),
 			"agent_url": fmt.Sprintf("http://%s:%d", host, port),
@@ -346,6 +444,24 @@ func registerAgentRoutes(mux *http.ServeMux) {
 			"os":      osName(),
 			"at":      time.Now().Format(time.RFC3339),
 			"note":    "Heuristic (vendor OUI, open camera ports, hostname). Verify before acting.",
+		})
+	}))
+
+	// Device baseline summary for the alerts feature.
+	mux.HandleFunc("/baseline", authWrap(func(w http.ResponseWriter, r *http.Request) {
+		if preflight(w, r) {
+			return
+		}
+		count := 0
+		if baseline != nil {
+			count = baseline.Count()
+		}
+		cfg := getRemoteConfig()
+		writeJSON(w, map[string]any{
+			"known_devices":    count,
+			"webhook_set":      cfg.WebhookURL != "",
+			"alert_new_device": cfg.AlertNewDevice,
+			"alert_new_camera": cfg.AlertNewCamera,
 		})
 	}))
 

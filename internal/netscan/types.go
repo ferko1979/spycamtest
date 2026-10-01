@@ -20,6 +20,10 @@ type Device struct {
 	CameraReasons []string `json:"camera_reasons,omitempty"`
 	// OpenPorts lists ports that answered during an active probe (if run).
 	OpenPorts []int `json:"open_ports,omitempty"`
+
+	// Fingerprint holds active camera-confirmation evidence (RTSP/ONVIF/HTTP
+	// banner), present only when active fingerprinting was performed.
+	Fingerprint *Fingerprint `json:"fingerprint,omitempty"`
 }
 
 // Network describes one local network interface the agent is attached to.

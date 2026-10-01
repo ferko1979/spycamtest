@@ -162,6 +162,21 @@
         <input id="idle" type="number" min="10" max="86400" placeholder="180" />
       </div>
 
+      <div style="height:10px;"></div>
+      <div class="muted" style="font-weight:700;">New-device / camera alerts</div>
+      <div class="field">
+        <div class="muted">Webhook URL (Slack/Discord/automation)</div>
+        <input id="webhook" type="text" placeholder="https://hooks.example.com/..." />
+      </div>
+      <div class="field" style="flex-direction:row; align-items:center; gap:10px;">
+        <input id="alertDevice" type="checkbox" />
+        <div class="muted">Alert on new device</div>
+      </div>
+      <div class="field" style="flex-direction:row; align-items:center; gap:10px;">
+        <input id="alertCamera" type="checkbox" />
+        <div class="muted">Alert on new camera</div>
+      </div>
+
       <div id="err" class="err"></div>
       <div id="ok" class="ok"></div>
       <div id="cfgPath" class="small"></div>
@@ -244,6 +259,9 @@
         document.getElementById('https').checked = !!(cfg && cfg.https);
         document.getElementById('interval').value = (cfg && cfg.sample_interval_sec) ? cfg.sample_interval_sec : 5;
         document.getElementById('idle').value = (cfg && cfg.idle_threshold_sec) ? cfg.idle_threshold_sec : 180;
+        document.getElementById('webhook').value = (cfg && cfg.webhook_url) ? cfg.webhook_url : '';
+        document.getElementById('alertDevice').checked = !!(cfg && cfg.alert_new_device);
+        document.getElementById('alertCamera').checked = !!(cfg && cfg.alert_new_camera);
         document.getElementById('cfgPath').textContent = cfg && cfg.config_path ? ('Saved at: ' + cfg.config_path) : '';
       } catch (e) {}
     }
@@ -262,9 +280,14 @@
       const interval = parseInt(document.getElementById('interval').value || '5', 10);
       const idle = parseInt(document.getElementById('idle').value || '180', 10);
 
+      const webhook = document.getElementById('webhook').value || '';
+      const alertDevice = !!document.getElementById('alertDevice').checked;
+      const alertCamera = !!document.getElementById('alertCamera').checked;
+
       try {
         const res = await saveConnectionConfig(host, port, https);
         await saveActivitySettings(interval, idle);
+        await saveAlertSettings(webhook, alertDevice, alertCamera);
         showOk('Saved. New server: ' + (res.origin || ''));
         await loadServerInfo();
         setTimeout(closeSettings, 700);

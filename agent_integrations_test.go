@@ -1,10 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"spycam-tray-agent/internal/report"
 )
 
 // setupTestServer wires the real agent routes with a known token.
@@ -66,6 +69,40 @@ func TestActivityConsentCannotEnableRemotely(t *testing.T) {
 		t.Errorf("remote enable = %d, want 403 (on-device only)", res.StatusCode)
 	}
 	res.Body.Close()
+}
+
+func TestBaselineEndpoint(t *testing.T) {
+	srv, tok := setupTestServer(t)
+	res := get(t, srv.URL+"/baseline", tok)
+	if res.StatusCode != 200 {
+		t.Fatalf("/baseline status = %d, want 200", res.StatusCode)
+	}
+	res.Body.Close()
+}
+
+func TestReportSignedWhenSeedPresent(t *testing.T) {
+	// setupTestServer sets a config without a seed; add one and verify the
+	// report carries a valid signature.
+	srv, tok := setupTestServer(t)
+	seed, _ := report.GenerateSeed()
+	cfg := getRemoteConfig()
+	cfg.SigningSeed = seed
+	applyRemoteConfig(cfg)
+
+	res := get(t, srv.URL+"/report", tok)
+	if res.StatusCode != 200 {
+		t.Fatalf("/report status = %d", res.StatusCode)
+	}
+	var body struct {
+		Signature *struct {
+			Algo string `json:"algo"`
+		} `json:"signature"`
+	}
+	_ = json.NewDecoder(res.Body).Decode(&body)
+	res.Body.Close()
+	if body.Signature == nil || body.Signature.Algo != "ed25519" {
+		t.Errorf("report should be signed, got %+v", body.Signature)
+	}
 }
 
 func TestDashboardInjectsToken(t *testing.T) {

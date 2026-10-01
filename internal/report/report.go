@@ -33,6 +33,14 @@ type Report struct {
 	TotalSeconds  float64          `json:"total_seconds"`
 	Entries       []activity.Usage `json:"entries"`
 
+	// Categories is per-category active time (Development, Communication,
+	// etc.), derived from the entries. Idle time is excluded.
+	Categories []CategoryTotal `json:"categories,omitempty"`
+
+	// Signature, when present, makes the report tamper-evident. It is
+	// excluded from the signed payload (see SigningPayload).
+	Signature *Signature `json:"signature,omitempty"`
+
 	// Disclosed records that the monitored user was informed and consented.
 	// It is always set true by Build because this tool only produces reports
 	// for disclosed tracking; it is surfaced in the report so downstream
@@ -69,7 +77,28 @@ func Build(usage []activity.Usage, since, until time.Time, meta Meta) Report {
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Seconds > entries[j].Seconds })
 	r.Entries = entries
 	r.TotalSeconds = r.ActiveSeconds + r.IdleSeconds
+	r.Categories = categorize(entries, nil)
 	return r
+}
+
+// categorize aggregates active entries into per-category totals, sorted by
+// descending time. custom is an optional override rule set.
+func categorize(entries []activity.Usage, custom map[string][]string) []CategoryTotal {
+	byCat := map[string]float64{}
+	for _, e := range entries {
+		byCat[Categorize(e.App, e.Title, custom)] += e.Seconds
+	}
+	out := make([]CategoryTotal, 0, len(byCat))
+	for c, s := range byCat {
+		out = append(out, CategoryTotal{Category: c, Seconds: s})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Seconds != out[j].Seconds {
+			return out[i].Seconds > out[j].Seconds
+		}
+		return out[i].Category < out[j].Category
+	})
+	return out
 }
 
 // JSON renders the report as indented JSON.

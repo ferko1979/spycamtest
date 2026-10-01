@@ -52,6 +52,7 @@
         <button onclick="loadCameras()">Find cameras</button>
         <span id="scanStatus" class="muted"></span>
       </div>
+      <div id="alerts" class="muted" style="margin-top:10px;"></div>
       <div id="networks" class="muted" style="margin-top:10px;"></div>
       <div style="overflow-x:auto;">
         <table id="devices" style="margin-top:10px;"><thead><tr>
@@ -143,10 +144,19 @@
         const data = await api('/scan' + (active ? '?active=1' : ''));
         renderNetworks(data.networks);
         renderDevices(data.devices);
+        renderAlerts(data.alerts);
         let note = (data.devices || []).length + ' device(s)';
         if (active && !data.active) note += ' (active scan is off in settings — passive only)';
         setStatus('scanStatus', note);
       } catch (e) { setStatus('scanStatus', e.message, true); }
+    }
+
+    function renderAlerts(alerts) {
+      const el = document.getElementById('alerts');
+      if (!alerts || !alerts.length) { el.innerHTML = ''; return; }
+      el.innerHTML = alerts.map(a =>
+        '<span class="pill' + (a.kind === 'new_camera' ? ' cam' : '') + '">' +
+        esc(a.kind) + '</span> ' + esc(a.message)).join('<br>');
     }
 
     async function loadCameras() {
@@ -184,10 +194,15 @@
       setStatus('actStatus', 'Building report…');
       try {
         const r = await api('/report');
+        const cats = (r.categories || []).map(c => esc(c.category) + ' ' + fmtMin(c.seconds) + 'm').join(' · ');
+        const signed = r.signature
+          ? '<span class="pill" style="color:#86efac;border-color:#14532d;">signed ' + esc(r.signature.algo) + '</span>'
+          : '';
         document.getElementById('reportSummary').innerHTML =
           'Active <b>' + fmtMin(r.active_seconds) + '</b> min, idle <b>' +
           fmtMin(r.idle_seconds) + '</b> min, over window starting ' + esc(r.window_start) +
-          ' — host <code>' + esc(r.host) + '</code>, user <code>' + esc(r.user) + '</code>.';
+          ' — host <code>' + esc(r.host) + '</code>, user <code>' + esc(r.user) + '</code> ' + signed +
+          (cats ? '<br>Categories: ' + cats : '');
         await loadActivity();
       } catch (e) { setStatus('actStatus', e.message, true); }
     }

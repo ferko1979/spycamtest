@@ -52,6 +52,9 @@ AGENT API (127.0.0.1:8765)
                               likelihood heuristic. active=1 adds an opt-in
                               TCP sweep (only if active scanning is enabled).
   GET /cameras[?active=1]      scan filtered to likely camera devices
+                              (active=1 also RTSP/ONVIF-fingerprints to
+                              confirm, adding evidence to each device)
+  GET /baseline                known-device count + alert settings
   GET /activity                current activity snapshot (if tracking is on)
   GET /activity/consent?enable=0   opt OUT of tracking (enabling must be done
                               on-device in the agent window; it cannot be
@@ -60,6 +63,28 @@ AGENT API (127.0.0.1:8765)
                               it to local history
   GET /report/history[?n=N]    last N stored reports
   GET /export?format=csv|json  download the current report
+
+-----------------------------------------------------------------------------
+CAMERA DETECTION & ALERTS
+-----------------------------------------------------------------------------
+- Devices are flagged as likely cameras from MAC/OUI vendor, open camera
+  ports, and hostname. With active scanning enabled, the agent additionally
+  sends an RTSP OPTIONS probe (port 554) and an HTTP/ONVIF banner check to
+  CONFIRM cameras and record evidence (server banner, auth realm).
+- The agent keeps a baseline of known device MACs. When a new device — or a
+  new likely camera — appears, it can POST an alert to a webhook
+  (Slack/Discord/automation). Configure the webhook URL and per-kind toggles
+  in the agent window; alerts also appear on the dashboard.
+
+-----------------------------------------------------------------------------
+WORK-VERIFIER REPORT — CATEGORIES & SIGNING
+-----------------------------------------------------------------------------
+- Reports group active time into categories (Development, Communication,
+  Productivity, Media, Browsing, Other) in addition to per-app detail.
+- Each report is signed with a per-install Ed25519 key (generated on first
+  run) and carries the signature + public key, so a consumer can verify it
+  was produced by this agent and not altered. Idle time is reported
+  separately from active time.
 
 -----------------------------------------------------------------------------
 ACTIVITY TRACKING — TRANSPARENCY
